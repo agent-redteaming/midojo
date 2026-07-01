@@ -20,9 +20,11 @@ from midojo.agent_client import (
     AgentClient,
     OGXResponsesClient,
     OpenAIResponsesAgentClient,
+    OpenShellAgentClient,
     PIAgentClient,
     SimpleHTTPAgentClient,
 )
+from midojo.backends import EnvironmentBackend
 from midojo.suites import get_suite, list_suites
 from midojo.yaml_task_suite import YAMLTaskSuite
 
@@ -183,6 +185,49 @@ async def _injection_reached_agent(
     return hits
 
 
+async def _create_evaluation(
+    client: httpx.AsyncClient,
+    control_url: str,
+    run_id: str,
+    user_task_id: str,
+    injection_task_id: str | None,
+    injections: dict[str, str],
+) -> tuple[str, str]:
+    """POST /evaluations and return (eval_id, prompt)."""
+    resp = await client.post(
+        f"{control_url}/runs/{run_id}/evaluations",
+        json={
+            "user_task_id": user_task_id,
+            "injection_task_id": injection_task_id,
+            "injections": injections,
+        },
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return data["id"], data["prompt"]
+
+
+async def _complete_and_grade(
+    client: httpx.AsyncClient,
+    control_url: str,
+    run_id: str,
+    eval_id: str,
+    agent_output: str,
+) -> dict:
+    """POST /complete + POST /grade and return the grading result dict."""
+    complete_resp = await client.post(
+        f"{control_url}/runs/{run_id}/evaluations/{eval_id}/complete",
+        json={"agent_output": agent_output},
+    )
+    complete_resp.raise_for_status()
+
+    grade_resp = await client.post(f"{control_url}/runs/{run_id}/evaluations/{eval_id}/grade")
+    grade_resp.raise_for_status()
+    result = grade_resp.json()
+    result["eval_id"] = eval_id
+    return result
+
+
 async def run_task(
     control_url: str,
     agent_client: AgentClient,
@@ -190,33 +235,37 @@ async def run_task(
     user_task_id: str,
     injection_task_id: str | None,
     injections: dict[str, str],
+    *,
+    backend: EnvironmentBackend | None = None,
 ) -> dict:
+    """Run a single evaluation.
+
+    If ``backend`` carries the OpenShell lifecycle (``setup``/``snapshot``/
+    ``teardown``), those are called around the agent execution step.
+    For dict-backed suites ``backend=None`` and the normal flow applies.
+    """
     async with httpx.AsyncClient(timeout=300.0) as client:
-        eval_resp = await client.post(
-            f"{control_url}/runs/{run_id}/evaluations",
-            json={
-                "user_task_id": user_task_id,
-                "injection_task_id": injection_task_id,
-                "injections": injections,
-            },
+        eval_id, prompt = await _create_evaluation(
+            client, control_url, run_id, user_task_id, injection_task_id, injections
         )
-        eval_resp.raise_for_status()
-        eval_data = eval_resp.json()
-        eval_id = eval_data["id"]
-        prompt = eval_data["prompt"]
 
-        agent_output = await agent_client.send_task(prompt)
+        if backend is not None:
+            pre_env = backend.provision(injections)  # type: ignore[union-attr]
+            await asyncio.to_thread(backend.setup, pre_env)  # type: ignore[union-attr]
+            try:
+                agent_output = await agent_client.send_task(prompt)
+                post_env = await asyncio.to_thread(backend.snapshot)  # type: ignore[union-attr]
+                env_resp = await client.put(
+                    f"{control_url}/runs/{run_id}/evaluations/{eval_id}/environment",
+                    json=post_env.model_dump(),  # type: ignore[union-attr]
+                )
+                env_resp.raise_for_status()
+            finally:
+                await asyncio.to_thread(backend.teardown)  # type: ignore[union-attr]
+        else:
+            agent_output = await agent_client.send_task(prompt)
 
-        complete_resp = await client.post(
-            f"{control_url}/runs/{run_id}/evaluations/{eval_id}/complete",
-            json={"agent_output": agent_output},
-        )
-        complete_resp.raise_for_status()
-
-        grade_resp = await client.post(f"{control_url}/runs/{run_id}/evaluations/{eval_id}/grade")
-        grade_resp.raise_for_status()
-        result = grade_resp.json()
-        result["eval_id"] = eval_id
+        result = await _complete_and_grade(client, control_url, run_id, eval_id, agent_output)
         result["prompt"] = prompt
         result["agent_output"] = agent_output
         return result
@@ -232,6 +281,7 @@ async def run_benchmark(
     user_task_ids: list[str] | None,
     injection_task_ids: list[str] | None,
     logdir: Path,
+    lifecycle_backend: EnvironmentBackend | None = None,
 ) -> None:
     user_tasks_to_run = user_task_ids or list(suite.user_tasks.keys())
     injection_tasks_to_run: list[str]
@@ -256,7 +306,10 @@ async def run_benchmark(
     for ut_id in user_tasks_to_run:
         for it_id in it_ids_to_run:
             injections = suite.get_probes_for_task(it_id) if it_id else {}
-            result = await run_task(control_url, agent_client, run_id, ut_id, it_id, injections)
+            result = await run_task(
+                control_url, agent_client, run_id, ut_id, it_id, injections,
+                backend=lifecycle_backend,
+            )
             utility_results[TaskPair(ut_id, it_id or "")] = result["utility"]
             eval_id = result["eval_id"]
             eval_url = f"{control_url}/runs/{run_id}/evaluations/{eval_id}"
@@ -307,9 +360,10 @@ async def run_benchmark(
     "--module-to-load", "-ml", "modules_to_load", multiple=True, default=(), help="Additional modules to import."
 )
 @click.option(
-    "--protocol", type=click.Choice(["http", "a2a", "pi", "ogx", "openai"]), required=True,
+    "--protocol", type=click.Choice(["http", "a2a", "pi", "ogx", "openai", "openshell"]), required=True,
     help="Agent communication protocol. "
-         "API keys are read from env vars: OPENAI_API_KEY (openai), OGX_CLIENT_API_KEY (ogx).",
+         "API keys are read from env vars: OPENAI_API_KEY (openai), OGX_CLIENT_API_KEY (ogx). "
+         "For openshell: omit --agent-url to use the CLI-registered active gateway.",
 )
 @click.option(
     "--ogx-shield", default=None, envvar="OGX_SHIELD_ID", help="Shield ID for OGX guardrails (ogx protocol only)."
@@ -342,6 +396,8 @@ def main(
 
     suite = get_suite(suite_name)
     agent_client: AgentClient
+    lifecycle_backend: EnvironmentBackend | None = None
+
     if protocol == "a2a":
         agent_client = A2AAgentClient(agent_url)
     elif protocol == "pi":
@@ -366,6 +422,13 @@ def main(
             api_key=os.environ.get("OPENAI_API_KEY", "x"),
             instructions=system_message,
         )
+    elif protocol == "openshell":
+        from midojo.openshell_backend import OpenShellBackend
+        if not isinstance(suite.backend, OpenShellBackend):
+            raise click.UsageError("--protocol openshell requires a suite with 'backend: {type: openshell, ...}'")
+        suite.backend.configure(endpoint=agent_url or "", control_url=control_url)
+        agent_client = OpenShellAgentClient(backend=suite.backend)
+        lifecycle_backend = suite.backend
     else:
         agent_client = SimpleHTTPAgentClient(agent_url)
 
@@ -380,6 +443,7 @@ def main(
             user_task_ids=list(user_tasks) if user_tasks else None,
             injection_task_ids=list(injection_tasks) if injection_tasks else None,
             logdir=logdir,
+            lifecycle_backend=lifecycle_backend,
         )
     )
 

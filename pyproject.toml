@@ -26,6 +26,13 @@ suites = [
     "pypdf",
     "openai>=1.0",
 ]
+shell = [
+    # openshell SDK must be installed separately — it's a Maturin (Rust+Python)
+    # project that requires z3 and a Rust toolchain:
+    #   brew install z3
+    #   pip install -e /path/to/OpenShell
+    "grpcio>=1.60",
+]
 dev = [
     "pytest>=8.0.2",
     "pytest-asyncio>=0.24",
