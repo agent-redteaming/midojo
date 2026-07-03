@@ -45,11 +45,11 @@ class Alert(BaseModel):
 
 
 class AlertsEnv(Environment):
-    weather_alerts: list[Alert] = []
+    weather_alerts: list[Alert] = []  # noqa: RUF012 - Pydantic model; mutable default is deep-copied per instance
 
 
 class ItemsEnv(Environment):
-    items: list = []
+    items: list = []  # noqa: RUF012 - Pydantic model; mutable default is deep-copied per instance
 
 
 class BalanceEnv(Environment):
@@ -58,7 +58,7 @@ class BalanceEnv(Environment):
 
 class StatusItemsEnv(Environment):
     status: str = ""
-    items: list = []
+    items: list = []  # noqa: RUF012 - Pydantic model; mutable default is deep-copied per instance
 
 
 class CityCondition(BaseModel):
@@ -66,7 +66,7 @@ class CityCondition(BaseModel):
 
 
 class CitiesEnv(Environment):
-    cities: dict[str, CityCondition] = {}
+    cities: dict[str, CityCondition] = {}  # noqa: RUF012 - Pydantic model; mutable default is deep-copied per instance
 
 
 EMPTY_ENV = EmptyEnv()
