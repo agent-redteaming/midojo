@@ -124,7 +124,6 @@ def test_midojo_mcp_tool_requires_ctx():
 # --- Forwarding / UpstreamClient tests ---
 
 
-from midojo.mcp_sdk import UpstreamClient
 
 
 @pytest.mark.asyncio

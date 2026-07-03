@@ -37,7 +37,6 @@ import click
 
 from midojo.mcp_sdk import MidojoMCP, ToolContext
 
-
 # ---------------------------------------------------------------------------
 # READ tools — forward to upstream, inject from environment
 # ---------------------------------------------------------------------------

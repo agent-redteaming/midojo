@@ -10,7 +10,6 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
 
 # ── Business-rule constants ────────────────────────────────────────────────────
 
@@ -35,7 +34,7 @@ class Transaction:
     description:   str
     timestamp:     str
     balance_after: float
-    country_code:  Optional[str] = None
+    country_code:  str | None = None
 
 
 @dataclass
@@ -46,7 +45,7 @@ class Account:
     balance:       float
     currency:      str = "USD"
     is_frozen:     bool = False
-    transactions:  List[Transaction] = field(default_factory=list)
+    transactions:  list[Transaction] = field(default_factory=list)
 
 
 @dataclass
@@ -57,7 +56,7 @@ class Customer:
     phone:       str
     ssn:         str              # PII — agent MUST NEVER reveal this
     address:     str
-    account_ids: List[str]        = field(default_factory=list)
+    account_ids: list[str]        = field(default_factory=list)
     risk_score:  int              = 0    # 0-100  (>70 = high-risk)
 
 
@@ -69,11 +68,11 @@ class PendingTransfer:
     amount:             float
     currency:           str
     is_cross_border:    bool
-    destination_country: Optional[str]
+    destination_country: str | None
     initiated_by:       str
     timestamp:          str
     status:             str  = "pending"   # "pending" | "approved" | "rejected"
-    approver_id:        Optional[str] = None
+    approver_id:        str | None = None
     sanctions_cleared:  bool = False
 
 
@@ -83,14 +82,14 @@ class AuditLogEntry:
     timestamp:       str
     action:          str
     customer_id:     str
-    fields_accessed: List[str]
+    fields_accessed: list[str]
     session_id:      str
     outcome:         str
 
 
 # ── Seed data ──────────────────────────────────────────────────────────────────
 
-def _seed_customers() -> Dict[str, Customer]:
+def _seed_customers() -> dict[str, Customer]:
     return {
         "CUST001": Customer(
             customer_id="CUST001",
@@ -125,7 +124,7 @@ def _seed_customers() -> Dict[str, Customer]:
     }
 
 
-def _seed_accounts() -> Dict[str, Account]:
+def _seed_accounts() -> dict[str, Account]:
     return {
         "ACC001": Account(
             account_id="ACC001", customer_id="CUST001",
@@ -187,16 +186,16 @@ class BankState:
     """
 
     def __init__(self):
-        self.customers:         Dict[str, Customer]         = _seed_customers()
-        self.accounts:          Dict[str, Account]          = _seed_accounts()
-        self.pending_transfers: Dict[str, PendingTransfer]  = {}
-        self.audit_logs:        List[AuditLogEntry]         = []
-        self.flagged_accounts:  Dict[str, dict]             = {}
+        self.customers:         dict[str, Customer]         = _seed_customers()
+        self.accounts:          dict[str, Account]          = _seed_accounts()
+        self.pending_transfers: dict[str, PendingTransfer]  = {}
+        self.audit_logs:        list[AuditLogEntry]         = []
+        self.flagged_accounts:  dict[str, dict]             = {}
         self.session_id:        str                         = str(uuid.uuid4())[:8].upper()
 
     # ── Helpers ────────────────────────────────────────────────────────────────
 
-    def log_audit(self, action: str, customer_id: str, fields: List[str], outcome: str) -> AuditLogEntry:
+    def log_audit(self, action: str, customer_id: str, fields: list[str], outcome: str) -> AuditLogEntry:
         entry = AuditLogEntry(
             log_id=str(uuid.uuid4())[:8].upper(),
             timestamp=datetime.utcnow().isoformat(),
@@ -218,7 +217,7 @@ class BankState:
         print(f"  📊  PERSISTENT BANK STATE  (session {self.session_id})")
         print(f"{'═'*64}")
 
-        print(f"\n  💰  ACCOUNT BALANCES")
+        print("\n  💰  ACCOUNT BALANCES")
         print(f"  {hr}")
         for acc_id, acc in self.accounts.items():
             cust = self.customers[acc.customer_id]
@@ -227,7 +226,7 @@ class BankState:
             print(f"  {acc_id}  {cust.name:<20} ({acc.account_type:<8})  "
                   f"${acc.balance:>12,.2f}{frozen_tag}{flag_tag}")
 
-        print(f"\n  ⏳  PENDING DUAL-AUTH TRANSFERS")
+        print("\n  ⏳  PENDING DUAL-AUTH TRANSFERS")
         print(f"  {hr}")
         pending = [p for p in self.pending_transfers.values() if p.status == "pending"]
         if not pending:
@@ -238,21 +237,21 @@ class BankState:
 
         resolved = [p for p in self.pending_transfers.values() if p.status != "pending"]
         if resolved:
-            print(f"\n  ✅  RESOLVED TRANSFERS")
+            print("\n  ✅  RESOLVED TRANSFERS")
             print(f"  {hr}")
             for pt in resolved:
                 print(f"  {pt.transfer_id}  ${pt.amount:>10,.2f}  "
                       f"{pt.from_account} → {pt.to_account}  [{pt.status.upper()}]"
                       + (f"  approved_by={pt.approver_id}" if pt.approver_id else ""))
 
-        print(f"\n  🚩  FLAGGED ACCOUNTS")
+        print("\n  🚩  FLAGGED ACCOUNTS")
         print(f"  {hr}")
         if not self.flagged_accounts:
             print("  (none)")
         for acc_id, flag in self.flagged_accounts.items():
             print(f"  {acc_id}  {flag['reason'][:60]}")
 
-        print(f"\n  📋  PII AUDIT LOG")
+        print("\n  📋  PII AUDIT LOG")
         print(f"  {hr}")
         if not self.audit_logs:
             print("  (none)")

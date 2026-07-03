@@ -26,7 +26,7 @@ import os
 
 import click
 
-from midojo.mcp_sdk import MidojoMCP, ToolContext 
+from midojo.mcp_sdk import MidojoMCP, ToolContext
 
 
 async def get_weather(ctx: ToolContext, city: str) -> str:

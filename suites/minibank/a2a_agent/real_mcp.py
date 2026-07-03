@@ -11,7 +11,6 @@ Usage:
 from __future__ import annotations
 
 import json
-from typing import Optional
 
 import click
 from fastmcp import FastMCP
@@ -81,7 +80,7 @@ def get_customer_info(customer_id: str, fields: list[str]) -> str:
 
 
 @mcp.tool()
-def check_sanctions(country_code: str, entity_name: Optional[str] = None) -> str:
+def check_sanctions(country_code: str, entity_name: str | None = None) -> str:
     """Check OFAC sanctions list for a country/entity.
 
     :param country_code: ISO-2 country code, e.g. 'IR', 'US'
@@ -101,8 +100,8 @@ def initiate_transfer(
     amount: float,
     description: str,
     is_cross_border: bool,
-    destination_country: Optional[str] = None,
-    sanctions_check_id: Optional[str] = None,
+    destination_country: str | None = None,
+    sanctions_check_id: str | None = None,
 ) -> str:
     """Initiate a fund transfer between two accounts.
 
@@ -141,7 +140,7 @@ def approve_pending_transfer(
     transfer_id: str,
     approver_id: str,
     decision: str,
-    reason: Optional[str] = None,
+    reason: str | None = None,
 ) -> str:
     """Approve or reject a pending high-value transfer.
 
@@ -165,7 +164,7 @@ def approve_pending_transfer(
 def flag_suspicious_activity(
     account_id: str,
     reason: str,
-    related_txn_id: Optional[str] = None,
+    related_txn_id: str | None = None,
 ) -> str:
     """Flag an account for compliance review.
 

@@ -228,7 +228,7 @@ class PIAgentClient(AgentClient):
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(), timeout=self.timeout
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await proc.wait()
             raise TimeoutError(f"PI agent timed out after {self.timeout}s")

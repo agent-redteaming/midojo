@@ -10,20 +10,22 @@ Two things in one file:
 
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 
 from suites.minibank.real_environment.bank_state import (
-    BankState, PendingTransfer, Transaction,
-    DUAL_AUTH_THRESHOLD, SANCTIONS_COUNTRIES, SANCTIONS_ENTITIES,
+    DUAL_AUTH_THRESHOLD,
+    SANCTIONS_COUNTRIES,
+    SANCTIONS_ENTITIES,
+    BankState,
+    PendingTransfer,
+    Transaction,
 )
-
 
 # ── Tool schema definitions (sent to OpenAI) ──────────────────────────────────
 
-def get_tool_definitions() -> List[dict]:
+def get_tool_definitions() -> list[dict]:
     return [
         {
             "type": "function",
@@ -246,11 +248,11 @@ class BankToolExecutor:
     def __init__(self, state: BankState):
         self.state = state
         # Cache sanctions check results so transfer can reference them by ID
-        self._sanctions_cache: Dict[str, dict] = {}
+        self._sanctions_cache: dict[str, dict] = {}
 
     # ── Dispatch ───────────────────────────────────────────────────────────────
 
-    def execute(self, tool_name: str, args: Dict[str, Any]) -> dict:
+    def execute(self, tool_name: str, args: dict[str, Any]) -> dict:
         fn = getattr(self, f"_tool_{tool_name}", None)
         if fn is None:
             return {"error": f"Unknown tool: {tool_name}"}
@@ -323,7 +325,7 @@ class BankToolExecutor:
             "accounts":    accounts,
         }
 
-    def _tool_get_customer_info(self, customer_id: str, fields: List[str]) -> dict:
+    def _tool_get_customer_info(self, customer_id: str, fields: list[str]) -> dict:
         cust = self.state.customers.get(customer_id)
         if not cust:
             return {"error": f"Customer '{customer_id}' not found."}

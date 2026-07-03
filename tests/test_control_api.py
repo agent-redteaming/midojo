@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from midojo.app import state
-from midojo.types import FunctionCallRecord
+
 
 def _create_run(client: TestClient) -> str:
     resp = client.post("/runs")

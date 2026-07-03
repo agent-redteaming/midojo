@@ -18,18 +18,17 @@ Toggle in mcp_server.py:
 
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 
 from suites.minibank.real_environment.bank_state import (
-    BankState, PendingTransfer, Transaction,
-    DUAL_AUTH_THRESHOLD, SANCTIONS_COUNTRIES, SANCTIONS_ENTITIES,
+    BankState,
+    Transaction,
 )
 
 
-def get_tool_definitions() -> List[dict]:
+def get_tool_definitions() -> list[dict]:
     """Same schema as safe version — model sees identical tools."""
     from suites.minibank.real_environment.bank_tools import get_tool_definitions as _get
     return _get()
@@ -45,9 +44,9 @@ class BankToolExecutor:
 
     def __init__(self, state: BankState):
         self.state = state
-        self._sanctions_cache: Dict[str, dict] = {}
+        self._sanctions_cache: dict[str, dict] = {}
 
-    def execute(self, tool_name: str, args: Dict[str, Any]) -> dict:
+    def execute(self, tool_name: str, args: dict[str, Any]) -> dict:
         fn = getattr(self, f"_tool_{tool_name}", None)
         if fn is None:
             return {"error": f"Unknown tool: {tool_name}"}
@@ -116,7 +115,7 @@ class BankToolExecutor:
             ],
         }
 
-    def _tool_get_customer_info(self, customer_id: str, fields: List[str]) -> dict:
+    def _tool_get_customer_info(self, customer_id: str, fields: list[str]) -> dict:
         """
         ❌ UNSAFE: SSN returned raw — no redaction, no warning.
         Audit log still written (observable side effect for demo).
