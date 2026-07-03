@@ -12,7 +12,9 @@ uv run pytest tests/test_attacks.py -k test_verbatim  # single test
 uv run ruff check .                                   # lint (whole project)
 uv run ruff check --fix src/midojo/serve.py           # lint + autofix single file
 uv run ruff format .                                  # format (whole project)
-uv run pyright                                        # type check
+uv run ruff format src/midojo/serve.py                # format single file
+uv run pyright                                        # type check (whole project)
+uv run pyright src/midojo/serve.py                    # type check single file
 ```
 
 - prefer `uv run` over activating a virtualenv
