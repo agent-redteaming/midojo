@@ -12,7 +12,7 @@ environment:
 
     # The sandbox image to use. Build the example agent from sandbox/Containerfile
     # or replace with your own production sandbox image — the eval below does not change.
-    image: localhost/document-assistant-local:latest
+    image: quay.io/rh-ee-spandraj/midojo:document-assistant-local
 
     # How to invoke the agent for each evaluation. Equivalent to --agent-url for
     # other protocols. Change this to match your sandbox image's agent entrypoint.

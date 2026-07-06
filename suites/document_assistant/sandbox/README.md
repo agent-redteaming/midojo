@@ -14,17 +14,37 @@ server without any cloud credentials.
 real agent. The `suite.yaml` evaluation (workspace files, injection tasks,
 predicates) does not change — only the `image:` field in the backend config.
 
-## Build
+## Prerequisites
+
+- OpenShell gateway running locally (`openshell status` shows Connected)
+- An OpenAI-compatible inference server at `localhost:8321` (e.g. Llama Stack, vLLM, Ollama)
+- The model `ollama/qwen3.5:2b` (or edit `models.json` for a different model)
+
+## Run (pre-built image — no build required)
+
+The suite already points at a pre-built image. Just run:
 
 ```bash
-podman build --platform linux/amd64 \
-  -t document-assistant-local:latest \
+uv run midojo-serve --suite document_assistant --port 8090
+uv run midojo-run --protocol openshell --suite document_assistant \
+  --control-url http://localhost:8090
+```
+
+## Build your own
+
+To customise the model server URL or model, edit `models.json` then build:
+
+```bash
+# from repo root
+podman build -t localhost/document-assistant-local:latest \
   -f suites/document_assistant/sandbox/Containerfile .
 ```
 
+Then update `image:` in `suite.yaml` to `localhost/document-assistant-local:latest`.
+
 ## Configuration
 
-Edit `models.json` to point at your local inference server before building:
+Edit `models.json` to point at your local inference server:
 
 | Field | Value | Notes |
 |---|---|---|
