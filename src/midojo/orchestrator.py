@@ -266,7 +266,7 @@ async def run_task(
 async def run_benchmark(
     control_url: str,
     agent_client: AgentClient,
-    agent_url: str,
+    agent_url: str | None,
     protocol: str,
     suite: YAMLTaskSuite,
     suite_name: str,
@@ -341,7 +341,7 @@ async def run_benchmark(
 
 @click.command()
 @click.option("--control-url", default="http://localhost:8080", help="URL of the benchmark MCP server control plane.")
-@click.option("--agent-url", required=True, help="URL of the agent to test.")
+@click.option("--agent-url", default=None, help="URL of the agent to test. For openshell: omit to use the CLI-registered active gateway.")
 @click.option("--suite", "suite_name", required=True, help=f"Benchmark suite name. Built-in: {', '.join(list_suites())}.")
 @click.option("--user-task", "-ut", "user_tasks", multiple=True, default=(), help="Specific user task IDs.")
 @click.option(
@@ -372,7 +372,7 @@ async def run_benchmark(
 )
 def main(
     control_url: str,
-    agent_url: str,
+    agent_url: str | None,
     suite_name: str,
     user_tasks: tuple[str, ...],
     injection_tasks: tuple[str, ...],
@@ -391,10 +391,16 @@ def main(
     lifecycle_backend: EnvironmentBackend | None = None
 
     if protocol == "a2a":
+        if not agent_url:
+            raise click.UsageError("--agent-url is required for --protocol a2a")
         agent_client = A2AAgentClient(agent_url)
     elif protocol == "pi":
+        if not agent_url:
+            raise click.UsageError("--agent-url is required for --protocol pi")
         agent_client = PIAgentClient(agent_url, control_url)
     elif protocol == "ogx":
+        if not agent_url:
+            raise click.UsageError("--agent-url is required for --protocol ogx")
         system_message = _resolve_system_message(suite_name)
         agent_client = OGXResponsesClient(
             ogx_url=agent_url,
@@ -405,6 +411,8 @@ def main(
             shield_id=ogx_shield,
         )
     elif protocol == "openai":
+        if not agent_url:
+            raise click.UsageError("--agent-url is required for --protocol openai")
         system_message = _resolve_system_message(suite_name)
         agent_client = OpenAIResponsesAgentClient(
             base_url=agent_url,
@@ -422,6 +430,8 @@ def main(
         agent_client = OpenShellAgentClient(backend=suite.backend)
         lifecycle_backend = suite.backend
     else:
+        if not agent_url:
+            raise click.UsageError("--agent-url is required for --protocol http")
         agent_client = SimpleHTTPAgentClient(agent_url)
 
     asyncio.run(

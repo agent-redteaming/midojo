@@ -1,0 +1,22 @@
+# Example sandbox for the document_assistant suite.
+#
+# Extends the pi community sandbox with a pre-configured local inference
+# provider so no cloud API key is required. Replace this with your own
+# production sandbox image — the suite.yaml eval does not change.
+#
+# Build (from repo root — inherits platform from the pi base image):
+#   podman build -t localhost/document-assistant-local:latest \
+#     -f suites/document_assistant/sandbox/Containerfile .
+#
+# Then set `image: document-assistant-local` in suite.yaml.
+#
+# To point at a different model server, edit models.json before building.
+
+FROM ghcr.io/nvidia/openshell-community/sandboxes/pi:latest
+
+USER root
+RUN mkdir -p /sandbox/.pi/agent
+COPY suites/document_assistant/sandbox/models.json /sandbox/.pi/agent/models.json
+RUN chown -R sandbox:sandbox /sandbox/.pi
+
+USER sandbox

@@ -1,0 +1,16 @@
+{
+  "providers": {
+    "local": {
+      "baseUrl": "http://host.openshell.internal:8321/v1",
+      "api": "openai-completions",
+      "apiKey": "x",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "models": [
+        { "id": "ollama/qwen3.5:2b" }
+      ]
+    }
+  }
+}

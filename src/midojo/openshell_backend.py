@@ -149,6 +149,8 @@ class OpenShellBackend:
         *,
         image: str | None,
         policy: dict | None = None,
+        providers: list[str] | None = None,
+        env_vars: dict[str, str] | None = None,
         agent_command: list[str] | None = None,
         workspace: dict[str, str] | None = None,
     ) -> None:
@@ -157,6 +159,16 @@ class OpenShellBackend:
         self._suite_name = suite_name
         self._image: str = image
         self._policy_spec: dict | None = policy
+        # OpenShell provider names to inject into the sandbox as credentials.
+        # These must be pre-registered with `openshell provider create`.
+        # midojo does not manage the credentials — it only tells the gateway
+        # which registered providers to activate for this sandbox. The gateway's
+        # supervisor injects them as environment variables into the agent process.
+        self._providers: list[str] = providers or []
+        # Extra environment variables injected into the sandbox at creation.
+        # Use this to configure inference endpoints (e.g. OPENAI_BASE_URL for
+        # a local model server) without needing a registered provider.
+        self._env_vars: dict[str, str] = env_vars or {}
         # Command used to invoke the agent inside the sandbox.
         # Analogous to --agent-url for other protocols: this is how midojo calls
         # the user's agent, expressed as a command inside the sandbox image.
@@ -231,19 +243,32 @@ class OpenShellBackend:
         else:
             self._client = SandboxClient.from_active_cluster()
 
+        env = {**self._env_vars}
+        if self._control_url:
+            env["MIDOJO_URL"] = self._control_url
         spec = openshell_pb2.SandboxSpec(
             template=openshell_pb2.SandboxTemplate(image=_resolve_image(self._image)),
-            environment={"MIDOJO_URL": self._control_url} if self._control_url else {},
+            environment=env,
+            providers=self._providers,
         )
         _resolve_policy(self._policy_spec, spec)
 
         self._ref = self._client.create(spec=spec)
         self._client.wait_ready(self._ref.name, timeout_seconds=120.0)
 
-        # Seed workspace
+        # Seed workspace files.
+        # Paths starting with "/" are seeded at the absolute path (e.g. config
+        # files outside the workspace). All other paths are relative to
+        # /sandbox/workspace/ (the agent's working directory).
         self._client.exec(self._ref.id, ["mkdir", "-p", "/sandbox/workspace"])
         for path, content in pre_env.workspace_files.items():
-            self._client.exec(self._ref.id, ["tee", f"/sandbox/workspace/{path}"], stdin=content.encode())
+            if path.startswith("/"):
+                dest = path
+            else:
+                dest = f"/sandbox/workspace/{path}"
+            parent = dest.rsplit("/", 1)[0]
+            self._client.exec(self._ref.id, ["mkdir", "-p", parent])
+            self._client.exec(self._ref.id, ["tee", dest], stdin=content.encode())
 
         self._client.exec(self._ref.id, ["touch", "/tmp/.midojo_baseline"])
         self._start_ms = int(time.time() * 1000)
