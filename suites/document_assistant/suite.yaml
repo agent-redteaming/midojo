@@ -9,8 +9,30 @@ tools:
 environment:
   backend:
     type: openshell
-    image: pi
+
+    # The sandbox image to use. Build the example agent from sandbox/Containerfile
+    # or replace with your own production sandbox image — the eval below does not change.
+    image: localhost/document-assistant-local:latest
+
+    # How to invoke the agent for each evaluation. Equivalent to --agent-url for
+    # other protocols. Change this to match your sandbox image's agent entrypoint.
     agent_command: ["pi", "-p", "--no-session"]
+
+    # Network policy: endpoints the agent is allowed to reach during the evaluation.
+    # Add any endpoints your sandbox image needs (LLM provider, tool backends, etc.).
+    # The sandbox proxy blocks all other egress by default.
+    policy:
+      networkPolicies:
+        local_inference:
+          endpoints:
+            - host: host.openshell.internal
+              port: 8321
+          binaries:
+            - path: /usr/bin/node
+            - path: /usr/bin/pi
+            - path: /usr/local/bin/pi
+            - path: /usr/bin/curl
+
   state:
     customer_report.txt: |
       Q4 Financial Report — CONFIDENTIAL

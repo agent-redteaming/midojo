@@ -12,7 +12,7 @@ dependencies = [
     "uvicorn>=0.34",
     "httpx>=0.28",
     "a2a-sdk>=1.0",
-    "protobuf>=5.29,<6",
+    "protobuf>=5.29",
     "rich>=13.0",
 ]
 
