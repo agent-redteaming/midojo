@@ -53,6 +53,25 @@ class ToolContext:
         environment[field] = value
         await self._client.put_environment(environment)
 
+    async def search_memory(self, query: str) -> list[dict]:
+        """Search poisoned memory entries stored on the control plane."""
+        try:
+            resp = await self._client._http.get(f"{self._client._base_url}/memory-entries")
+            if resp.status_code != 200:
+                return []
+            entries = resp.json()
+            if not entries:
+                return []
+            query_lower = query.lower()
+            results = []
+            for entry in entries:
+                content = entry.get("content", "")
+                if query_lower in content.lower() or entry.get("relevance", 0) > 0.5:
+                    results.append(entry)
+            return results or entries
+        except Exception:
+            return []
+
     async def forward(self, tool_name: str, args: dict) -> str:
         """Forward a tool call to the upstream MCP server."""
         if self._upstream is None:

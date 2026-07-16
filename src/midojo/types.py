@@ -17,6 +17,14 @@ class ToolModification(BaseModel):
     replace_description: str | None = None
 
 
+class MemoryEntry(BaseModel):
+    """A poisoned memory entry to pre-populate in the agent's memory store."""
+
+    content: str
+    source: str = "system"
+    relevance: float = 1.0
+
+
 class OutputHook(BaseModel):
     """Describes how to modify a tool's return value at runtime."""
 

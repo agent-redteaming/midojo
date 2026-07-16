@@ -84,6 +84,7 @@ def create_evaluation(
         active_injections=req.injections,
         tool_modifications=req.tool_modifications,
         output_hooks=req.output_hooks,
+        memory_entries=req.memory_entries,
     )
     run.evaluations[evaluation.id] = evaluation
     state.current_eval = evaluation
@@ -262,6 +263,11 @@ def get_current_tool_overrides(evaluation: Annotated[Evaluation, Depends(get_cur
 @current_router.get("/output-hooks", status_code=status.HTTP_200_OK)
 def get_current_output_hooks(evaluation: Annotated[Evaluation, Depends(get_current_evaluation)]) -> list[dict]:
     return [h.model_dump() for h in evaluation.output_hooks]
+
+
+@current_router.get("/memory-entries", status_code=status.HTTP_200_OK)
+def get_current_memory_entries(evaluation: Annotated[Evaluation, Depends(get_current_evaluation)]) -> list[dict]:
+    return [e.model_dump() for e in evaluation.memory_entries]
 
 
 @current_router.get("/environment", status_code=status.HTTP_200_OK)

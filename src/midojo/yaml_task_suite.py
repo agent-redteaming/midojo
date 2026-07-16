@@ -10,7 +10,7 @@ from midojo.app.models import ToolInfoResponse
 from midojo.attacks import resolve_source, wrap_payload
 from midojo.backends import EnvironmentBackend, build_backend
 from midojo.probes import substitute_probes
-from midojo.types import Environment, FunctionCallRecord, OutputHook, PromptModification, ToolModification
+from midojo.types import Environment, FunctionCallRecord, MemoryEntry, OutputHook, PromptModification, ToolModification
 from midojo.verifier import Check, VerificationContext, parse_check
 
 
@@ -48,6 +48,7 @@ class YAMLTaskSuite:
         self._prompt_injections: dict[str, PromptModification] = {}
         self._tool_modifications: dict[str, ToolModification] = {}
         self._output_hooks: dict[str, OutputHook] = {}
+        self._memory_entries: dict[str, MemoryEntry] = {}
         self._register_tasks()
 
     @property
@@ -78,6 +79,11 @@ class YAMLTaskSuite:
         """Return tool-output-channel hooks for the given injection task."""
         prefix = f"{task_id}:"
         return [hook for key, hook in self._output_hooks.items() if key.startswith(prefix)]
+
+    def get_memory_entries_for_task(self, task_id: str) -> list[MemoryEntry]:
+        """Return memory-channel entries for the given injection task."""
+        prefix = f"{task_id}:"
+        return [entry for key, entry in self._memory_entries.items() if key.startswith(prefix)]
 
     def grade(
         self,
@@ -171,6 +177,11 @@ class YAMLTaskSuite:
                         tool_name=target_tool,
                         inject_in_response=wrapped,
                         inject_mode=probe_raw.get("inject_mode", "append"),
+                    )
+                elif channel == "memory":
+                    self._memory_entries[f"{task_id}:{probe_id}"] = MemoryEntry(
+                        content=wrapped,
+                        source=probe_raw.get("memory_source", "system"),
                     )
                 else:
                     probes[probe_id] = wrapped
