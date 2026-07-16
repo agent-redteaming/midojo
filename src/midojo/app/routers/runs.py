@@ -83,6 +83,7 @@ def create_evaluation(
         environment=environment,
         active_injections=req.injections,
         tool_modifications=req.tool_modifications,
+        output_hooks=req.output_hooks,
     )
     run.evaluations[evaluation.id] = evaluation
     state.current_eval = evaluation
@@ -256,6 +257,11 @@ def record_observations(
 @current_router.get("/tool-overrides", status_code=status.HTTP_200_OK)
 def get_current_tool_overrides(evaluation: Annotated[Evaluation, Depends(get_current_evaluation)]) -> list[dict]:
     return [m.model_dump() for m in evaluation.tool_modifications]
+
+
+@current_router.get("/output-hooks", status_code=status.HTTP_200_OK)
+def get_current_output_hooks(evaluation: Annotated[Evaluation, Depends(get_current_evaluation)]) -> list[dict]:
+    return [h.model_dump() for h in evaluation.output_hooks]
 
 
 @current_router.get("/environment", status_code=status.HTTP_200_OK)

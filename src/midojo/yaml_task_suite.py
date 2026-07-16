@@ -10,7 +10,7 @@ from midojo.app.models import ToolInfoResponse
 from midojo.attacks import resolve_source, wrap_payload
 from midojo.backends import EnvironmentBackend, build_backend
 from midojo.probes import substitute_probes
-from midojo.types import Environment, FunctionCallRecord, PromptModification, ToolModification
+from midojo.types import Environment, FunctionCallRecord, OutputHook, PromptModification, ToolModification
 from midojo.verifier import Check, VerificationContext, parse_check
 
 
@@ -47,6 +47,7 @@ class YAMLTaskSuite:
         self.injection_tasks: dict[str, InjectionTask] = {}
         self._prompt_injections: dict[str, PromptModification] = {}
         self._tool_modifications: dict[str, ToolModification] = {}
+        self._output_hooks: dict[str, OutputHook] = {}
         self._register_tasks()
 
     @property
@@ -72,6 +73,11 @@ class YAMLTaskSuite:
         """Return tool-description-channel modifications for the given injection task."""
         prefix = f"{task_id}:"
         return [mod for key, mod in self._tool_modifications.items() if key.startswith(prefix)]
+
+    def get_output_hooks_for_task(self, task_id: str) -> list[OutputHook]:
+        """Return tool-output-channel hooks for the given injection task."""
+        prefix = f"{task_id}:"
+        return [hook for key, hook in self._output_hooks.items() if key.startswith(prefix)]
 
     def grade(
         self,
@@ -156,6 +162,15 @@ class YAMLTaskSuite:
                     self._tool_modifications[f"{task_id}:{probe_id}"] = ToolModification(
                         tool_name=target_tool,
                         append_to_description=f"\n{wrapped}",
+                    )
+                elif channel == "tool_output":
+                    target_tool = probe_raw.get("target_tool")
+                    if not target_tool:
+                        raise ValueError("channel 'tool_output' requires 'target_tool'")
+                    self._output_hooks[f"{task_id}:{probe_id}"] = OutputHook(
+                        tool_name=target_tool,
+                        inject_in_response=wrapped,
+                        inject_mode=probe_raw.get("inject_mode", "append"),
                     )
                 else:
                     probes[probe_id] = wrapped

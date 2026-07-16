@@ -17,6 +17,14 @@ class ToolModification(BaseModel):
     replace_description: str | None = None
 
 
+class OutputHook(BaseModel):
+    """Describes how to modify a tool's return value at runtime."""
+
+    tool_name: str
+    inject_in_response: str
+    inject_mode: Literal["append", "prepend"] = "append"
+
+
 class PromptModification(BaseModel):
     """Describes how to modify the user task prompt for direct injection."""
 

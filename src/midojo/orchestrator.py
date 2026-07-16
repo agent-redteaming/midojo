@@ -203,12 +203,14 @@ async def _run_single_eval(
     prompt_content: str | None = None
     prompt_mode: str = "append"
     tool_mods: list[dict] = []
+    out_hooks: list[dict] = []
 
     if hasattr(injection, "probes"):
         probes = injection.probes or {}
         prompt_content = injection.prompt_content
         prompt_mode = getattr(injection, "prompt_mode", "append")
         tool_mods = injection.tool_modifications or []
+        out_hooks = getattr(injection, "output_hooks", None) or []
     elif isinstance(injection, dict):
         probes = injection
 
@@ -222,6 +224,11 @@ async def _run_single_eval(
             eval_body["tool_modifications"] = [
                 m.model_dump() if isinstance(m, ToolModification) else m
                 for m in tool_mods
+            ]
+        if out_hooks:
+            eval_body["output_hooks"] = [
+                h.model_dump() if hasattr(h, "model_dump") else h
+                for h in out_hooks
             ]
         eval_resp = await client.post(
             f"{control_url}/runs/{run_id}/evaluations",
@@ -275,9 +282,10 @@ async def run_task(
     injections: dict[str, str],
     prompt_injections: list | None = None,
     tool_modifications: list | None = None,
+    output_hooks: list | None = None,
     attacker_config: dict | None = None,
 ) -> dict:
-    from midojo.types import PromptModification, ToolModification
+    from midojo.types import OutputHook, PromptModification, ToolModification
 
     attack_spec = None
     if injection_task_id and injection_task_id in suite.injection_tasks:
@@ -338,6 +346,11 @@ async def run_task(
             m.model_dump() if isinstance(m, ToolModification) else m
             for m in tool_modifications
         ]
+    if output_hooks:
+        inj.output_hooks = [
+            h.model_dump() if isinstance(h, OutputHook) else h
+            for h in output_hooks
+        ]
 
     raw = await _run_single_eval(
         control_url, agent_client, run_id,
@@ -383,9 +396,10 @@ async def run_benchmark(
             injections = suite.get_probes_for_task(it_id) if it_id else {}
             prompt_injs = suite.get_prompt_injections_for_task(it_id) if it_id else []
             tool_mods = suite.get_tool_modifications_for_task(it_id) if it_id else []
+            output_hooks = suite.get_output_hooks_for_task(it_id) if it_id else []
             result = await run_task(
                 control_url, agent_client, run_id, suite, ut_id, it_id,
-                injections, prompt_injs, tool_mods, attacker_config,
+                injections, prompt_injs, tool_mods, output_hooks, attacker_config,
             )
             utility_results[TaskPair(ut_id, it_id or "")] = result["utility"]
             eval_id = result["eval_id"]
