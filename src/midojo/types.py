@@ -17,6 +17,14 @@ class ToolModification(BaseModel):
     replace_description: str | None = None
 
 
+class InterAgentMessage(BaseModel):
+    """A message to inject into inter-agent communication."""
+
+    target_agent: str
+    content: str
+    impersonate_agent: str | None = None
+
+
 class MemoryEntry(BaseModel):
     """A poisoned memory entry to pre-populate in the agent's memory store."""
 

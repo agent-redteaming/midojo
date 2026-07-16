@@ -10,7 +10,15 @@ from midojo.app.models import ToolInfoResponse
 from midojo.attacks import resolve_source, wrap_payload
 from midojo.backends import EnvironmentBackend, build_backend
 from midojo.probes import substitute_probes
-from midojo.types import Environment, FunctionCallRecord, MemoryEntry, OutputHook, PromptModification, ToolModification
+from midojo.types import (
+    Environment,
+    FunctionCallRecord,
+    InterAgentMessage,
+    MemoryEntry,
+    OutputHook,
+    PromptModification,
+    ToolModification,
+)
 from midojo.verifier import Check, VerificationContext, parse_check
 
 
@@ -49,6 +57,7 @@ class YAMLTaskSuite:
         self._tool_modifications: dict[str, ToolModification] = {}
         self._output_hooks: dict[str, OutputHook] = {}
         self._memory_entries: dict[str, MemoryEntry] = {}
+        self._inter_agent_messages: dict[str, InterAgentMessage] = {}
         self._register_tasks()
 
     @property
@@ -84,6 +93,11 @@ class YAMLTaskSuite:
         """Return memory-channel entries for the given injection task."""
         prefix = f"{task_id}:"
         return [entry for key, entry in self._memory_entries.items() if key.startswith(prefix)]
+
+    def get_inter_agent_messages_for_task(self, task_id: str) -> list[InterAgentMessage]:
+        """Return inter-agent-channel messages for the given injection task."""
+        prefix = f"{task_id}:"
+        return [msg for key, msg in self._inter_agent_messages.items() if key.startswith(prefix)]
 
     def grade(
         self,
@@ -182,6 +196,13 @@ class YAMLTaskSuite:
                     self._memory_entries[f"{task_id}:{probe_id}"] = MemoryEntry(
                         content=wrapped,
                         source=probe_raw.get("memory_source", "system"),
+                    )
+                elif channel == "inter_agent":
+                    target_agent = probe_raw.get("target_agent", "")
+                    self._inter_agent_messages[f"{task_id}:{probe_id}"] = InterAgentMessage(
+                        target_agent=target_agent,
+                        content=wrapped,
+                        impersonate_agent=probe_raw.get("impersonate_agent"),
                     )
                 else:
                     probes[probe_id] = wrapped

@@ -206,6 +206,7 @@ async def _run_single_eval(
     out_hooks: list[dict] = []
 
     mem_entries: list[dict] = []
+    ia_messages: list[dict] = []
 
     if hasattr(injection, "probes"):
         probes = injection.probes or {}
@@ -214,6 +215,7 @@ async def _run_single_eval(
         tool_mods = injection.tool_modifications or []
         out_hooks = getattr(injection, "output_hooks", None) or []
         mem_entries = getattr(injection, "memory_entries", None) or []
+        ia_messages = getattr(injection, "inter_agent_messages", None) or []
     elif isinstance(injection, dict):
         probes = injection
 
@@ -237,6 +239,11 @@ async def _run_single_eval(
             eval_body["memory_entries"] = [
                 e.model_dump() if hasattr(e, "model_dump") else e
                 for e in mem_entries
+            ]
+        if ia_messages:
+            eval_body["inter_agent_messages"] = [
+                m.model_dump() if hasattr(m, "model_dump") else m
+                for m in ia_messages
             ]
         eval_resp = await client.post(
             f"{control_url}/runs/{run_id}/evaluations",
@@ -349,9 +356,10 @@ async def run_task(
     tool_modifications: list | None = None,
     output_hooks: list | None = None,
     memory_entries: list | None = None,
+    inter_agent_messages: list | None = None,
     attacker_config: dict | None = None,
 ) -> dict:
-    from midojo.types import MemoryEntry, OutputHook, PromptModification, ToolModification
+    from midojo.types import InterAgentMessage, MemoryEntry, OutputHook, PromptModification, ToolModification
 
     attack_spec = None
     if injection_task_id and injection_task_id in suite.injection_tasks:
@@ -429,6 +437,11 @@ async def run_task(
             e.model_dump() if isinstance(e, MemoryEntry) else e
             for e in memory_entries
         ]
+    if inter_agent_messages:
+        inj.inter_agent_messages = [
+            m.model_dump() if isinstance(m, InterAgentMessage) else m
+            for m in inter_agent_messages
+        ]
 
     raw = await _run_single_eval(
         control_url, agent_client, run_id,
@@ -476,9 +489,11 @@ async def run_benchmark(
             tool_mods = suite.get_tool_modifications_for_task(it_id) if it_id else []
             output_hooks = suite.get_output_hooks_for_task(it_id) if it_id else []
             mem_entries = suite.get_memory_entries_for_task(it_id) if it_id else []
+            ia_messages = suite.get_inter_agent_messages_for_task(it_id) if it_id else []
             result = await run_task(
                 control_url, agent_client, run_id, suite, ut_id, it_id,
-                injections, prompt_injs, tool_mods, output_hooks, mem_entries, attacker_config,
+                injections, prompt_injs, tool_mods, output_hooks, mem_entries, ia_messages,
+                attacker_config,
             )
             utility_results[TaskPair(ut_id, it_id or "")] = result["utility"]
             eval_id = result["eval_id"]
