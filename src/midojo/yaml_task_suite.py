@@ -10,7 +10,7 @@ from midojo.app.models import ToolInfoResponse
 from midojo.attacks import resolve_source, wrap_payload
 from midojo.backends import EnvironmentBackend, build_backend
 from midojo.probes import substitute_probes
-from midojo.types import Environment, FunctionCallRecord, PromptModification
+from midojo.types import Environment, FunctionCallRecord, PromptModification, ToolModification
 from midojo.verifier import Check, VerificationContext, parse_check
 
 
@@ -45,6 +45,7 @@ class YAMLTaskSuite:
         self.user_tasks: dict[str, UserTask] = {}
         self.injection_tasks: dict[str, InjectionTask] = {}
         self._prompt_injections: dict[str, PromptModification] = {}
+        self._tool_modifications: dict[str, ToolModification] = {}
         self._register_tasks()
 
     @property
@@ -65,6 +66,11 @@ class YAMLTaskSuite:
         """Return prompt-channel injections for the given injection task."""
         prefix = f"{task_id}:"
         return [mod for key, mod in self._prompt_injections.items() if key.startswith(prefix)]
+
+    def get_tool_modifications_for_task(self, task_id: str) -> list[ToolModification]:
+        """Return tool-description-channel modifications for the given injection task."""
+        prefix = f"{task_id}:"
+        return [mod for key, mod in self._tool_modifications.items() if key.startswith(prefix)]
 
     def grade(
         self,
@@ -140,6 +146,14 @@ class YAMLTaskSuite:
                     self._prompt_injections[f"{task_id}:{probe_id}"] = PromptModification(
                         mode=mode,
                         content=wrapped,
+                    )
+                elif channel == "tool_description":
+                    target_tool = probe_raw.get("target_tool")
+                    if not target_tool:
+                        raise ValueError("channel 'tool_description' requires 'target_tool'")
+                    self._tool_modifications[f"{task_id}:{probe_id}"] = ToolModification(
+                        tool_name=target_tool,
+                        append_to_description=f"\n{wrapped}",
                     )
                 else:
                     probes[probe_id] = wrapped

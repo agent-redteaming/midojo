@@ -9,6 +9,14 @@ class Environment(BaseModel):
     ...
 
 
+class ToolModification(BaseModel):
+    """Describes how to modify a tool definition for tool poisoning attacks."""
+
+    tool_name: str
+    append_to_description: str | None = None
+    replace_description: str | None = None
+
+
 class PromptModification(BaseModel):
     """Describes how to modify the user task prompt for direct injection."""
 

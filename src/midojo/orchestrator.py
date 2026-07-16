@@ -191,17 +191,24 @@ async def run_task(
     injection_task_id: str | None,
     injections: dict[str, str],
     prompt_injections: list | None = None,
+    tool_modifications: list | None = None,
 ) -> dict:
-    from midojo.types import PromptModification
+    from midojo.types import PromptModification, ToolModification
 
     async with httpx.AsyncClient(timeout=300.0) as client:
+        eval_body: dict = {
+            "user_task_id": user_task_id,
+            "injection_task_id": injection_task_id,
+            "injections": injections,
+        }
+        if tool_modifications:
+            eval_body["tool_modifications"] = [
+                m.model_dump() if isinstance(m, ToolModification) else m
+                for m in tool_modifications
+            ]
         eval_resp = await client.post(
             f"{control_url}/runs/{run_id}/evaluations",
-            json={
-                "user_task_id": user_task_id,
-                "injection_task_id": injection_task_id,
-                "injections": injections,
-            },
+            json=eval_body,
         )
         eval_resp.raise_for_status()
         eval_data = eval_resp.json()
@@ -268,7 +275,11 @@ async def run_benchmark(
         for it_id in it_ids_to_run:
             injections = suite.get_probes_for_task(it_id) if it_id else {}
             prompt_injs = suite.get_prompt_injections_for_task(it_id) if it_id else []
-            result = await run_task(control_url, agent_client, run_id, ut_id, it_id, injections, prompt_injs)
+            tool_mods = suite.get_tool_modifications_for_task(it_id) if it_id else []
+            result = await run_task(
+                control_url, agent_client, run_id, ut_id, it_id,
+                injections, prompt_injs, tool_mods,
+            )
             utility_results[TaskPair(ut_id, it_id or "")] = result["utility"]
             eval_id = result["eval_id"]
             eval_url = f"{control_url}/runs/{run_id}/evaluations/{eval_id}"

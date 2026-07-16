@@ -137,6 +137,52 @@ class MidojoMCP:
         self._fastmcp = FastMCP(name)
         self._client = ControlPlaneClient(control_plane_url)
         self._upstream = UpstreamClient(upstream_url) if upstream_url else None
+        self._original_descriptions: dict[str, str] = {}
+        self._overrides_applied: bool = False
+        self._patch_list_tools()
+
+    def _patch_list_tools(self) -> None:
+        """Monkey-patch FastMCP's list_tools to sync overrides before each listing."""
+        provider = self._fastmcp._local_provider
+        self._original_list_tools = provider._list_tools
+        mcp_ref = self
+
+        async def _patched_list_tools(*args, **kwargs):
+            await mcp_ref._sync_tool_overrides()
+            return await mcp_ref._original_list_tools(*args, **kwargs)
+
+        provider._list_tools = _patched_list_tools
+
+    async def _sync_tool_overrides(self) -> None:
+        """Fetch tool description overrides from the control plane and apply them."""
+        try:
+            resp = await self._client._http.get(f"{self._client._base_url}/tool-overrides")
+            if resp.status_code != 200:
+                return
+            overrides = resp.json()
+        except Exception:
+            return
+
+        # Get tools via the ORIGINAL (unpatched) list to avoid recursion
+        tools = await self._original_list_tools()
+
+        # Restore original descriptions first
+        for tool in tools:
+            if tool.name in self._original_descriptions:
+                tool.description = self._original_descriptions[tool.name]
+
+        if not overrides:
+            return
+
+        for tool in tools:
+            for ovr in overrides:
+                if ovr.get("tool_name") == tool.name:
+                    if tool.name not in self._original_descriptions:
+                        self._original_descriptions[tool.name] = tool.description or ""
+                    if ovr.get("replace_description"):
+                        tool.description = ovr["replace_description"]
+                    elif ovr.get("append_to_description"):
+                        tool.description = (tool.description or "") + ovr["append_to_description"]
 
     def tool(self):
         def decorator(fn):
