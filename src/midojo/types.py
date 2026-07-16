@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, SerializeAsAny
 
 
@@ -5,6 +7,13 @@ class Environment(BaseModel):
     """Base class for suite environments."""
 
     ...
+
+
+class PromptModification(BaseModel):
+    """Describes how to modify the user task prompt for direct injection."""
+
+    mode: Literal["prepend", "append"] = "append"
+    content: str
 
 
 class FunctionCallRecord(BaseModel):

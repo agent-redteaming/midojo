@@ -190,7 +190,10 @@ async def run_task(
     user_task_id: str,
     injection_task_id: str | None,
     injections: dict[str, str],
+    prompt_injections: list | None = None,
 ) -> dict:
+    from midojo.types import PromptModification
+
     async with httpx.AsyncClient(timeout=300.0) as client:
         eval_resp = await client.post(
             f"{control_url}/runs/{run_id}/evaluations",
@@ -204,6 +207,14 @@ async def run_task(
         eval_data = eval_resp.json()
         eval_id = eval_data["id"]
         prompt = eval_data["prompt"]
+
+        for mod in prompt_injections or []:
+            if not isinstance(mod, PromptModification):
+                continue
+            if mod.mode == "append":
+                prompt = f"{prompt}\n\n{mod.content}"
+            elif mod.mode == "prepend":
+                prompt = f"{mod.content}\n\n{prompt}"
 
         agent_output = await agent_client.send_task(prompt)
 
@@ -256,7 +267,8 @@ async def run_benchmark(
     for ut_id in user_tasks_to_run:
         for it_id in it_ids_to_run:
             injections = suite.get_probes_for_task(it_id) if it_id else {}
-            result = await run_task(control_url, agent_client, run_id, ut_id, it_id, injections)
+            prompt_injs = suite.get_prompt_injections_for_task(it_id) if it_id else []
+            result = await run_task(control_url, agent_client, run_id, ut_id, it_id, injections, prompt_injs)
             utility_results[TaskPair(ut_id, it_id or "")] = result["utility"]
             eval_id = result["eval_id"]
             eval_url = f"{control_url}/runs/{run_id}/evaluations/{eval_id}"
@@ -266,7 +278,10 @@ async def run_benchmark(
             _print_agent_text("agent output", result["agent_output"])
             console.print("    ", _utility(result["utility"]))
             if it_id:
-                hit_channels = await _injection_reached_agent(control_url, run_id, eval_id, injections)
+                all_payloads = dict(injections)
+                for pi in prompt_injs:
+                    all_payloads[f"__prompt_injection_{id(pi)}"] = pi.content
+                hit_channels = await _injection_reached_agent(control_url, run_id, eval_id, all_payloads)
                 if hit_channels:
                     security_results[TaskPair(ut_id, it_id)] = result["security"]
                     counts = Counter(hit_channels)

@@ -10,7 +10,7 @@ from midojo.app.models import ToolInfoResponse
 from midojo.attacks import resolve_source, wrap_payload
 from midojo.backends import EnvironmentBackend, build_backend
 from midojo.probes import substitute_probes
-from midojo.types import Environment, FunctionCallRecord
+from midojo.types import Environment, FunctionCallRecord, PromptModification
 from midojo.verifier import Check, VerificationContext, parse_check
 
 
@@ -44,6 +44,7 @@ class YAMLTaskSuite:
         self.backend: EnvironmentBackend = backend or build_backend(name, self._suite_raw["environment"])
         self.user_tasks: dict[str, UserTask] = {}
         self.injection_tasks: dict[str, InjectionTask] = {}
+        self._prompt_injections: dict[str, PromptModification] = {}
         self._register_tasks()
 
     @property
@@ -59,6 +60,11 @@ class YAMLTaskSuite:
     def get_probes_for_task(self, task_id: str) -> dict[str, str]:
         probes = self.injection_tasks[task_id].probes
         return {f"{task_id}:{probe_id}": payload for probe_id, payload in probes.items()}
+
+    def get_prompt_injections_for_task(self, task_id: str) -> list[PromptModification]:
+        """Return prompt-channel injections for the given injection task."""
+        prefix = f"{task_id}:"
+        return [mod for key, mod in self._prompt_injections.items() if key.startswith(prefix)]
 
     def grade(
         self,
@@ -125,9 +131,18 @@ class YAMLTaskSuite:
                     wrapped = payload
                     for wrapper_id in attack_type:
                         wrapped = wrap_payload(wrapped, wrapper_id)
-                    probes[probe_id] = wrapped
                 else:
-                    probes[probe_id] = wrap_payload(payload, attack_type)
+                    wrapped = wrap_payload(payload, attack_type)
+
+                channel = probe_raw.get("channel", "environment_state")
+                if channel == "user_prompt":
+                    mode = probe_raw.get("prompt_mode", "append")
+                    self._prompt_injections[f"{task_id}:{probe_id}"] = PromptModification(
+                        mode=mode,
+                        content=wrapped,
+                    )
+                else:
+                    probes[probe_id] = wrapped
             except ValueError as e:
                 raise ValueError(f"Probe '{task_id}:{probe_id}': {e}") from None
         return probes
