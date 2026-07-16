@@ -120,7 +120,14 @@ class YAMLTaskSuite:
         for probe_id, probe_raw in raw.items():
             try:
                 payload = self._resolve_probe_payload(probe_raw)
-                probes[probe_id] = wrap_payload(payload, probe_raw.get("attack_type", "verbatim"))
+                attack_type = probe_raw.get("attack_type", "verbatim")
+                if isinstance(attack_type, list):
+                    wrapped = payload
+                    for wrapper_id in attack_type:
+                        wrapped = wrap_payload(wrapped, wrapper_id)
+                    probes[probe_id] = wrapped
+                else:
+                    probes[probe_id] = wrap_payload(payload, attack_type)
             except ValueError as e:
                 raise ValueError(f"Probe '{task_id}:{probe_id}': {e}") from None
         return probes
