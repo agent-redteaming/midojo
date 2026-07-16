@@ -272,6 +272,63 @@ async def _run_single_eval(
     }
 
 
+async def _run_multi_turn_eval(
+    control_url: str,
+    agent_client: AgentClient,
+    run_id: str,
+    user_task_id: str,
+    injection_task_id: str | None,
+    turn_generator,
+) -> dict:
+    """Execute a multi-turn evaluation. The turn_generator is an async callable
+    that receives a send_message callback and drives the conversation.
+
+    Returns an EvalResult-compatible dict with the final conversation state.
+    """
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        eval_resp = await client.post(
+            f"{control_url}/runs/{run_id}/evaluations",
+            json={
+                "user_task_id": user_task_id,
+                "injection_task_id": injection_task_id,
+                "injections": {},
+            },
+        )
+        eval_resp.raise_for_status()
+        eval_data = eval_resp.json()
+        eval_id = eval_data["id"]
+
+        async def send_message(message: str, previous_response_id: str | None = None) -> tuple[str, str | None]:
+            return await agent_client.send_message(message, previous_response_id)
+
+        eval_result_holder: dict = {}
+        last_output = await turn_generator(send_message, eval_result_holder)
+
+        complete_resp = await client.post(
+            f"{control_url}/runs/{run_id}/evaluations/{eval_id}/complete",
+            json={"agent_output": last_output or ""},
+        )
+        complete_resp.raise_for_status()
+
+        grade_resp = await client.post(f"{control_url}/runs/{run_id}/evaluations/{eval_id}/grade")
+        grade_resp.raise_for_status()
+        grade = grade_resp.json()
+
+        calls_resp = await client.get(
+            f"{control_url}/runs/{run_id}/evaluations/{eval_id}/function-calls"
+        )
+        calls = calls_resp.json() if calls_resp.status_code == 200 else []
+
+    from redteam_attacks.types import EvalResult
+
+    return EvalResult(
+        agent_output=last_output or "",
+        function_calls=calls,
+        security_passed=grade["security"],
+        utility_passed=grade["utility"],
+    )
+
+
 async def run_task(
     control_url: str,
     agent_client: AgentClient,
@@ -306,8 +363,15 @@ async def run_task(
                 utility_passed=raw.get("utility", True),
             )
 
+        async def _multi_turn_callback(turn_generator) -> EvalResult:
+            return await _run_multi_turn_eval(
+                control_url, agent_client, run_id,
+                user_task_id, injection_task_id, turn_generator,
+            )
+
         ctx = AttackContext(
             run_evaluation=_eval_callback,
+            run_multi_turn=_multi_turn_callback,
             tool_names=suite.get_tool_names(),
             user_task_id=user_task_id,
             injection_task_id=injection_task_id or "",
