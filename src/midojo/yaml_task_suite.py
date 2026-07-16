@@ -27,6 +27,7 @@ class InjectionTask:
     description: str
     probes: dict[str, str] = field(default_factory=dict)
     check: Check | None = None
+    attack_spec: dict | None = None
 
 
 class YAMLTaskSuite:
@@ -125,6 +126,7 @@ class YAMLTaskSuite:
                 description=task_raw["description"],
                 check=check,
                 probes=probes,
+                attack_spec=task_raw.get("attack"),
             )
 
     def _parse_probes(self, task_id: str, raw: dict[str, dict]) -> dict[str, str]:

@@ -183,28 +183,45 @@ async def _injection_reached_agent(
     return hits
 
 
-async def run_task(
+async def _run_single_eval(
     control_url: str,
     agent_client: AgentClient,
     run_id: str,
     user_task_id: str,
     injection_task_id: str | None,
-    injections: dict[str, str],
-    prompt_injections: list | None = None,
-    tool_modifications: list | None = None,
+    injection,
 ) -> dict:
-    from midojo.types import PromptModification, ToolModification
+    """Execute one complete evaluation cycle. Called once by static attacks,
+    N times by iterative strategies (PAIR, TAP, etc.).
+
+    The ``injection`` parameter is a redteam_attacks.Injection (probes dict,
+    prompt content, tool modifications) or a plain dict for backward compat.
+    """
+    from midojo.types import ToolModification
+
+    probes: dict[str, str] = {}
+    prompt_content: str | None = None
+    prompt_mode: str = "append"
+    tool_mods: list[dict] = []
+
+    if hasattr(injection, "probes"):
+        probes = injection.probes or {}
+        prompt_content = injection.prompt_content
+        prompt_mode = getattr(injection, "prompt_mode", "append")
+        tool_mods = injection.tool_modifications or []
+    elif isinstance(injection, dict):
+        probes = injection
 
     async with httpx.AsyncClient(timeout=300.0) as client:
         eval_body: dict = {
             "user_task_id": user_task_id,
             "injection_task_id": injection_task_id,
-            "injections": injections,
+            "injections": probes,
         }
-        if tool_modifications:
+        if tool_mods:
             eval_body["tool_modifications"] = [
                 m.model_dump() if isinstance(m, ToolModification) else m
-                for m in tool_modifications
+                for m in tool_mods
             ]
         eval_resp = await client.post(
             f"{control_url}/runs/{run_id}/evaluations",
@@ -215,13 +232,11 @@ async def run_task(
         eval_id = eval_data["id"]
         prompt = eval_data["prompt"]
 
-        for mod in prompt_injections or []:
-            if not isinstance(mod, PromptModification):
-                continue
-            if mod.mode == "append":
-                prompt = f"{prompt}\n\n{mod.content}"
-            elif mod.mode == "prepend":
-                prompt = f"{mod.content}\n\n{prompt}"
+        if prompt_content:
+            if prompt_mode == "append":
+                prompt = f"{prompt}\n\n{prompt_content}"
+            elif prompt_mode == "prepend":
+                prompt = f"{prompt_content}\n\n{prompt}"
 
         agent_output = await agent_client.send_task(prompt)
 
@@ -233,11 +248,102 @@ async def run_task(
 
         grade_resp = await client.post(f"{control_url}/runs/{run_id}/evaluations/{eval_id}/grade")
         grade_resp.raise_for_status()
-        result = grade_resp.json()
-        result["eval_id"] = eval_id
-        result["prompt"] = prompt
-        result["agent_output"] = agent_output
-        return result
+        grade = grade_resp.json()
+
+        calls_resp = await client.get(
+            f"{control_url}/runs/{run_id}/evaluations/{eval_id}/function-calls"
+        )
+        calls = calls_resp.json() if calls_resp.status_code == 200 else []
+
+    return {
+        "eval_id": eval_id,
+        "prompt": prompt,
+        "agent_output": agent_output,
+        "utility": grade["utility"],
+        "security": grade["security"],
+        "function_calls": calls,
+    }
+
+
+async def run_task(
+    control_url: str,
+    agent_client: AgentClient,
+    run_id: str,
+    suite: YAMLTaskSuite,
+    user_task_id: str,
+    injection_task_id: str | None,
+    injections: dict[str, str],
+    prompt_injections: list | None = None,
+    tool_modifications: list | None = None,
+    attacker_config: dict | None = None,
+) -> dict:
+    from midojo.types import PromptModification, ToolModification
+
+    attack_spec = None
+    if injection_task_id and injection_task_id in suite.injection_tasks:
+        attack_spec = suite.injection_tasks[injection_task_id].attack_spec
+
+    if attack_spec and attack_spec.get("strategy") not in (None, "static"):
+        from redteam_attacks import Attack, AttackContext, EvalResult, Injection
+
+        async def _eval_callback(inj: Injection) -> EvalResult:
+            raw = await _run_single_eval(
+                control_url, agent_client, run_id,
+                user_task_id, injection_task_id, inj,
+            )
+            return EvalResult(
+                agent_output=raw.get("agent_output", ""),
+                function_calls=raw.get("function_calls", []),
+                security_passed=raw.get("security", True),
+                utility_passed=raw.get("utility", True),
+            )
+
+        ctx = AttackContext(
+            run_evaluation=_eval_callback,
+            tool_names=suite.get_tool_names(),
+            user_task_id=user_task_id,
+            injection_task_id=injection_task_id or "",
+            attacker_model=(attacker_config or {}).get("attacker_model"),
+            attacker_base_url=(attacker_config or {}).get("attacker_base_url"),
+            attacker_api_key=(attacker_config or {}).get("attacker_api_key"),
+        )
+
+        seed_payloads = list(injections.values()) if injections else []
+        attack = Attack.from_spec(attack_spec, seed_payloads=seed_payloads)
+        attack_result = await attack.execute(ctx)
+
+        last_eval = attack_result.evaluations[-1] if attack_result.evaluations else None
+        return {
+            "utility": last_eval.utility_passed if last_eval else False,
+            "security": attack_result.success,
+            "eval_id": "attack-multi",
+            "prompt": f"(iterative: {attack_result.strategy_metadata.get('strategy', '?')}, "
+                      f"{len(attack_result.evaluations)} evals)",
+            "agent_output": last_eval.agent_output if last_eval else "",
+            "attack_result": attack_result,
+        }
+
+    # --- Static path (unchanged behavior) ---
+    from redteam_attacks.types import Injection
+
+    inj = Injection(probes=injections)
+    if prompt_injections:
+        for mod in prompt_injections:
+            if isinstance(mod, PromptModification):
+                inj.prompt_content = mod.content
+                inj.prompt_mode = mod.mode
+                break
+    if tool_modifications:
+        inj.tool_modifications = [
+            m.model_dump() if isinstance(m, ToolModification) else m
+            for m in tool_modifications
+        ]
+
+    raw = await _run_single_eval(
+        control_url, agent_client, run_id,
+        user_task_id, injection_task_id, inj,
+    )
+    return raw
 
 
 async def run_benchmark(
@@ -250,6 +356,7 @@ async def run_benchmark(
     user_task_ids: list[str] | None,
     injection_task_ids: list[str] | None,
     logdir: Path,
+    attacker_config: dict | None = None,
 ) -> None:
     user_tasks_to_run = user_task_ids or list(suite.user_tasks.keys())
     injection_tasks_to_run: list[str]
@@ -277,8 +384,8 @@ async def run_benchmark(
             prompt_injs = suite.get_prompt_injections_for_task(it_id) if it_id else []
             tool_mods = suite.get_tool_modifications_for_task(it_id) if it_id else []
             result = await run_task(
-                control_url, agent_client, run_id, ut_id, it_id,
-                injections, prompt_injs, tool_mods,
+                control_url, agent_client, run_id, suite, ut_id, it_id,
+                injections, prompt_injs, tool_mods, attacker_config,
             )
             utility_results[TaskPair(ut_id, it_id or "")] = result["utility"]
             eval_id = result["eval_id"]
@@ -289,18 +396,28 @@ async def run_benchmark(
             _print_agent_text("agent output", result["agent_output"])
             console.print("    ", _utility(result["utility"]))
             if it_id:
-                all_payloads = dict(injections)
-                for pi in prompt_injs:
-                    all_payloads[f"__prompt_injection_{id(pi)}"] = pi.content
-                hit_channels = await _injection_reached_agent(control_url, run_id, eval_id, all_payloads)
-                if hit_channels:
-                    security_results[TaskPair(ut_id, it_id)] = result["security"]
-                    counts = Counter(hit_channels)
-                    parts = [f"{ch} x{n}" if n > 1 else ch for ch, n in counts.items()]
-                    via = ", ".join(parts)
-                    console.print("    ", _security(result["security"]), Text(f"  (injection in {via})", style="dim"))
+                if "attack_result" in result:
+                    ar = result["attack_result"]
+                    security_results[TaskPair(ut_id, it_id)] = ar.success
+                    n_evals = len(ar.evaluations)
+                    console.print(
+                        "    ",
+                        _security(ar.success),
+                        Text(f"  ({n_evals} evals via {ar.strategy_metadata.get('strategy', '?')})", style="dim"),
+                    )
                 else:
-                    console.print("    ", Text("N/A (payload not in any result)", style="dim"))
+                    all_payloads = dict(injections)
+                    for pi in prompt_injs:
+                        all_payloads[f"__prompt_injection_{id(pi)}"] = pi.content
+                    hit_channels = await _injection_reached_agent(control_url, run_id, eval_id, all_payloads)
+                    if hit_channels:
+                        security_results[TaskPair(ut_id, it_id)] = result["security"]
+                        counts = Counter(hit_channels)
+                        parts = [f"{ch} x{n}" if n > 1 else ch for ch, n in counts.items()]
+                        via = ", ".join(parts)
+                        console.print("    ", _security(result["security"]), Text(f"  (injection in {via})", style="dim"))
+                    else:
+                        console.print("    ", Text("N/A (payload not in any result)", style="dim"))
 
     console.print()
 
@@ -350,6 +467,19 @@ async def run_benchmark(
     help="Model ID for the Responses API (ogx and openai protocols). "
          "Env: MODEL_NAME. Example: gpt-4o-mini, ollama/qwen3.5:2b.",
 )
+@click.option(
+    "--attacker-model", default=None, envvar="ATTACKER_MODEL",
+    help="Model for the attacker LLM in adaptive strategies (PAIR, TAP). "
+         "Env: ATTACKER_MODEL.",
+)
+@click.option(
+    "--attacker-base-url", default=None, envvar="ATTACKER_BASE_URL",
+    help="Base URL for the attacker LLM API. Env: ATTACKER_BASE_URL.",
+)
+@click.option(
+    "--attacker-api-key", default=None, envvar="ATTACKER_API_KEY",
+    help="API key for the attacker LLM. Env: ATTACKER_API_KEY.",
+)
 def main(
     control_url: str,
     agent_url: str,
@@ -362,6 +492,9 @@ def main(
     ogx_shield: str | None,
     mcp_server_label: str | None,
     model_name: str | None,
+    attacker_model: str | None,
+    attacker_base_url: str | None,
+    attacker_api_key: str | None,
 ) -> None:
     for module in modules_to_load:
         importlib.import_module(module)
@@ -395,6 +528,14 @@ def main(
     else:
         agent_client = SimpleHTTPAgentClient(agent_url)
 
+    attacker_cfg = None
+    if attacker_model:
+        attacker_cfg = {
+            "attacker_model": attacker_model,
+            "attacker_base_url": attacker_base_url,
+            "attacker_api_key": attacker_api_key,
+        }
+
     asyncio.run(
         run_benchmark(
             control_url=control_url,
@@ -406,6 +547,7 @@ def main(
             user_task_ids=list(user_tasks) if user_tasks else None,
             injection_task_ids=list(injection_tasks) if injection_tasks else None,
             logdir=logdir,
+            attacker_config=attacker_cfg,
         )
     )
 
