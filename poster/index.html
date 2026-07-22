@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MiDojo — DEF CON 34 AI Village</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --surface-hover: #1a1a28;
+    --border: #2a2a3a;
+    --text: #e4e4ef;
+    --text-dim: #8888a0;
+    --accent: #6366f1;
+    --accent-glow: rgba(99, 102, 241, 0.15);
+    --red: #ef4444;
+    --red-dim: rgba(239, 68, 68, 0.15);
+    --green: #22c55e;
+    --green-dim: rgba(34, 197, 94, 0.15);
+    --yellow: #eab308;
+    --yellow-dim: rgba(234, 179, 8, 0.15);
+    --cyan: #06b6d4;
+    --cyan-dim: rgba(6, 182, 212, 0.15);
+    --orange: #f97316;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', system-ui, sans-serif;
+    min-height: 100vh;
+  }
+
+  .poster {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  /* ── Title Bar ── */
+  .title-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 28px 36px;
+    background: linear-gradient(135deg, var(--surface) 0%, #16162a 100%);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+  }
+
+  .title-bar h1 {
+    font-size: 2.4rem;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+  }
+
+  .title-bar h1 span { color: var(--accent); }
+
+  .title-meta {
+    text-align: right;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .title-meta strong { color: var(--text); font-weight: 600; }
+
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .badge-defcon { background: var(--red-dim); color: var(--red); border: 1px solid var(--red); }
+  .badge-oss { background: var(--green-dim); color: var(--green); border: 1px solid var(--green); }
+
+  /* ── Grid ── */
+  .grid-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+
+  .grid-full { grid-column: 1 / -1; }
+
+  /* ── Panels ── */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+  }
+
+  .panel-accent { border-color: var(--accent); box-shadow: 0 0 40px var(--accent-glow); }
+
+  .panel h2 {
+    font-size: 1.3rem;
+    font-weight: 800;
+    margin-bottom: 4px;
+    letter-spacing: -0.01em;
+  }
+
+  .panel .subtitle {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    margin-bottom: 20px;
+  }
+
+  .panel h3 {
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin: 18px 0 8px;
+    color: var(--accent);
+  }
+
+  /* ── Bullet points ── */
+  .points { list-style: none; }
+
+  .points li {
+    padding: 8px 0 8px 20px;
+    position: relative;
+    font-size: 0.88rem;
+    line-height: 1.5;
+    color: var(--text);
+  }
+
+  .points li::before {
+    content: '▸';
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+    font-weight: bold;
+  }
+
+  .points li strong { color: var(--accent); }
+
+  /* ── Architecture diagram ── */
+  .arch-diagram {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    line-height: 1.6;
+    color: var(--text-dim);
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  .arch-diagram .hl { color: var(--accent); font-weight: 700; }
+  .arch-diagram .red { color: var(--red); }
+  .arch-diagram .green { color: var(--green); }
+  .arch-diagram .yellow { color: var(--yellow); }
+  .arch-diagram .cyan { color: var(--cyan); }
+
+  /* ── Attack surface table ── */
+  .attack-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+  }
+
+  .attack-table th {
+    text-align: left;
+    padding: 10px 12px;
+    font-weight: 700;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .attack-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  .attack-table tr:last-child td { border-bottom: none; }
+
+  .channel-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+  }
+
+  .ch-prompt { background: var(--red-dim); color: var(--red); }
+  .ch-env { background: var(--yellow-dim); color: var(--yellow); }
+  .ch-tooldesc { background: var(--cyan-dim); color: var(--cyan); }
+  .ch-toolout { background: var(--accent-glow); color: var(--accent); }
+  .ch-memory { background: var(--green-dim); color: var(--green); }
+  .ch-agent { background: rgba(249,115,22,0.15); color: var(--orange); }
+
+  /* ── Composability ── */
+  .formula {
+    background: var(--bg);
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    padding: 16px 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    text-align: center;
+    color: var(--accent);
+    font-weight: 700;
+    margin: 12px 0;
+  }
+
+  .stats-row {
+    display: flex;
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  .stat-card {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    text-align: center;
+  }
+
+  .stat-card .num {
+    font-size: 1.8rem;
+    font-weight: 900;
+    color: var(--accent);
+  }
+
+  .stat-card .label {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 2px;
+  }
+
+  /* ── Results placeholder ── */
+  .results-placeholder {
+    background: repeating-linear-gradient(
+      -45deg,
+      var(--bg),
+      var(--bg) 10px,
+      var(--surface) 10px,
+      var(--surface) 20px
+    );
+    border: 2px dashed var(--yellow);
+    border-radius: 12px;
+    padding: 40px;
+    text-align: center;
+    color: var(--yellow);
+  }
+
+  .results-placeholder h3 {
+    color: var(--yellow);
+    margin-bottom: 12px;
+  }
+
+  .results-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 20px;
+  }
+
+  .result-slot {
+    background: var(--bg);
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+    min-height: 160px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .result-slot .slot-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+
+  .result-slot .slot-desc {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
+  /* ── Code block ── */
+  .code-block {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    line-height: 1.7;
+    overflow-x: auto;
+    color: var(--text-dim);
+  }
+
+  .code-block .cmd { color: var(--green); }
+  .code-block .flag { color: var(--cyan); }
+  .code-block .comment { color: #555570; }
+  .code-block .val { color: var(--yellow); }
+
+  /* ── Callout ── */
+  .callout {
+    background: var(--accent-glow);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    padding: 12px 16px;
+    font-size: 0.82rem;
+    margin-top: 16px;
+    line-height: 1.5;
+  }
+
+  /* ── YAML block ── */
+  .yaml-block {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    line-height: 1.7;
+    color: var(--text-dim);
+    margin-top: 12px;
+  }
+
+  .yaml-block .key { color: var(--cyan); }
+  .yaml-block .val { color: var(--yellow); }
+  .yaml-block .comment { color: #555570; }
+
+  /* ── Footer ── */
+  .footer {
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    padding: 12px;
+  }
+
+  .footer a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="poster">
+
+  <!-- ═══ TITLE BAR ═══ -->
+  <div class="title-bar">
+    <div>
+      <h1>Mi<span>Dojo</span>: Red-Team Any Agent in Any Environment</h1>
+      <p style="color: var(--text-dim); font-size: 0.9rem; margin-top: 6px;">
+        Man-in-the-middle red teaming for tool-using AI agents
+      </p>
+    </div>
+    <div class="title-meta">
+      <span class="badge badge-defcon">DEF CON 34</span>
+      <span class="badge badge-oss">Open Source</span>
+      <br><br>
+      <strong>AUTHORS_PLACEHOLDER</strong><br>
+      Red Hat
+    </div>
+  </div>
+
+  <!-- ═══ ROW 1: Problem + Architecture ═══ -->
+  <div class="grid-2col">
+
+    <!-- Panel 1: The Problem -->
+    <div class="panel">
+      <h2>Your Agent's Tools Are Its Attack Surface</h2>
+      <p class="subtitle">The problem with current agent red-teaming</p>
+
+      <ul class="points">
+        <li>Tool-using AI agents are vulnerable to prompt injection through <strong>many surfaces</strong> — not just the user prompt</li>
+        <li>An agent's tools, the data they return, and their descriptions are all <strong>attacker-controlled</strong> in realistic threat models</li>
+        <li>Current red-teaming tools test one surface at a time in <strong>simulated environments</strong> — missing how real attacks land</li>
+        <li>Attacks that succeed via <strong>tool calls leave no trace</strong> in the agent's text output — input/output testing is blind to them</li>
+      </ul>
+
+      <h3>Real-World Attack Vectors</h3>
+      <ul class="points">
+        <li><strong>MCP Tool Poisoning</strong> — hidden directives in tool descriptions (CVE-2025-54136)</li>
+        <li><strong>Indirect Prompt Injection</strong> — instructions hidden in data the agent reads (Greshake et al.)</li>
+        <li><strong>Tool Response Manipulation</strong> — compromised APIs return malicious content (CyberArk ATPA, 2025)</li>
+        <li><strong>Memory Poisoning</strong> — false entries in RAG/memory stores (MINJA, NeurIPS 2025)</li>
+      </ul>
+    </div>
+
+    <!-- Panel 2: Architecture -->
+    <div class="panel panel-accent">
+      <h2>Man-in-the-Middle, Not Simulation</h2>
+      <p class="subtitle">MiDojo interposes between the agent and its tools</p>
+
+      <div class="arch-diagram">
+                          <span class="hl">┌───────────────┐</span>
+                          <span class="hl">│  Orchestrator  │</span>  sends prompt,
+                          <span class="hl">│  midojo-run    │</span>  triggers grading
+                          <span class="hl">└──┬─────────┬───┘</span>
+                             │         │
+                   prompt    │         │  create eval
+                   + inject  │         │  + grade
+                             ▼         ▼
+  <span class="green">┌──────────┐</span>    <span class="cyan">┌──────────────────────┐</span>
+  <span class="green">│  Agent   │</span>◄──►<span class="cyan">│    Control Plane     │</span>  stores state,
+  <span class="green">│ (target) │</span>    <span class="cyan">│  records every call  │</span>  grades results
+  <span class="green">└────┬─────┘</span>    <span class="cyan">└────────▲─────────────┘</span>
+       │                  │
+       │ tool calls       │ env state +
+       │ + responses      │ function call recording
+       │                  │
+  <span class="red">┌────▼──────────────────┴───┐</span>
+  <span class="red">│    Fake MCP Server        │</span>
+  <span class="red">│  ┌─────┐ ┌──────┐ ┌─────┐│</span>    <span class="yellow">┌──────────┐</span>
+  <span class="red">│  │ FWD │ │INJECT│ │ BOTH││</span>◄──►<span class="yellow">│ Real MCP │</span>
+  <span class="red">│  └─────┘ └──────┘ └─────┘│</span>    <span class="yellow">│(optional)│</span>
+  <span class="red">└──────────────────────────┘</span>    <span class="yellow">└──────────┘</span></div>
+
+      <div class="callout">
+        <strong>Swiss-cheese interception:</strong> each tool independently forwards to the real backend, intercepts and injects attack payloads, or both.
+        No agent modification required — works with any MCP-compatible agent.
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ ROW 2: Attack Surfaces + Composability ═══ -->
+  <div class="grid-2col">
+
+    <!-- Panel 3: 6 Attack Surfaces -->
+    <div class="panel">
+      <h2>6 Attack Surfaces, One Framework</h2>
+      <p class="subtitle">Every channel a real attacker would use</p>
+
+      <table class="attack-table">
+        <thead>
+          <tr>
+            <th>Surface</th>
+            <th>Channel</th>
+            <th>How the Payload Arrives</th>
+            <th>Access Level</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>User Prompt</strong></td>
+            <td><span class="channel-tag ch-prompt">user_prompt</span></td>
+            <td>Injected directly into the user's message</td>
+            <td>Black-box</td>
+          </tr>
+          <tr>
+            <td><strong>Environment Data</strong></td>
+            <td><span class="channel-tag ch-env">environment_state</span></td>
+            <td>Hidden in data fields the agent reads (customer notes, transaction descriptions)</td>
+            <td>Gray-box</td>
+          </tr>
+          <tr>
+            <td><strong>Tool Descriptions</strong></td>
+            <td><span class="channel-tag ch-tooldesc">tool_description</span></td>
+            <td>Hidden directive in MCP tool description metadata</td>
+            <td>Gray-box</td>
+          </tr>
+          <tr>
+            <td><strong>Tool Responses</strong></td>
+            <td><span class="channel-tag ch-toolout">tool_output</span></td>
+            <td>Injected into tool return values at runtime</td>
+            <td>White-box</td>
+          </tr>
+          <tr>
+            <td><strong>Memory / RAG</strong></td>
+            <td><span class="channel-tag ch-memory">memory</span></td>
+            <td>Poisoned entries in agent's memory store</td>
+            <td>Gray-box</td>
+          </tr>
+          <tr>
+            <td><strong>Inter-Agent</strong></td>
+            <td><span class="channel-tag ch-agent">inter_agent</span></td>
+            <td>Forged messages between agents in multi-agent systems</td>
+            <td>White-box</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout">
+        MiDojo grades <strong>utility</strong> (did the agent complete its task?) and <strong>security</strong> (did the attack cause an unauthorized tool call?) together — catching attacks that leave no trace in the output.
+      </div>
+    </div>
+
+    <!-- Panel 4: Composable Attack Library -->
+    <div class="panel">
+      <h2>Composable Attack Library</h2>
+      <p class="subtitle">redteam-attacks: wrappers, channels, strategies, goals</p>
+
+      <div class="formula">
+        Attack = Wrappers × Channel × Strategy × Goal
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="num">25</div>
+          <div class="label">Delivery Techniques</div>
+        </div>
+        <div class="stat-card">
+          <div class="num">6</div>
+          <div class="label">Attack Channels</div>
+        </div>
+        <div class="stat-card">
+          <div class="num">5</div>
+          <div class="label">Search Strategies</div>
+        </div>
+        <div class="stat-card">
+          <div class="num">3</div>
+          <div class="label">Attack Goals</div>
+        </div>
+      </div>
+
+      <h3>Strategies</h3>
+      <ul class="points">
+        <li><strong>Static</strong> — one-shot payload delivery</li>
+        <li><strong>PAIR</strong> — iterative adversarial refinement (Chao et al., NeurIPS 2023)</li>
+        <li><strong>TAP</strong> — tree search with pruning (Mehrotra et al., NeurIPS 2024)</li>
+        <li><strong>Crescendo</strong> — progressive multi-turn escalation (Russinovich, USENIX 2025)</li>
+        <li><strong>Multi-phase</strong> — compose attacks: poison memory → exploit via prompt</li>
+      </ul>
+
+      <div class="yaml-block">
+<span class="key">attack</span>:
+  <span class="key">wrappers</span>: <span class="val">[compliance_audit, base64_encode]</span>
+  <span class="key">channel</span>: <span class="val">tool_output</span>
+  <span class="key">strategy</span>:
+    <span class="key">type</span>: <span class="val">pair</span>
+    <span class="key">streams</span>: <span class="val">3</span>
+    <span class="key">max_iterations</span>: <span class="val">10</span>
+  <span class="key">goal</span>: <span class="val">data_exfiltration</span>
+<span class="comment"># Wraps payload in compliance framing → base64 encodes</span>
+<span class="comment"># → injects into tool response → PAIR iterates until</span>
+<span class="comment"># the agent makes an unauthorized tool call</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ ROW 3: Results (placeholders) ═══ -->
+  <div class="panel grid-full">
+    <h2>Results</h2>
+    <p class="subtitle">Benchmark findings across models, channels, and attack strategies</p>
+
+    <div class="results-placeholder">
+      <h3>Benchmark Results — Coming Soon</h3>
+      <p style="font-size: 0.85rem; margin-bottom: 8px;">
+        Results will be populated after implementing advanced attack strategies
+        (context-aware PAIR, multi-phase composition, Crescendo multi-turn).
+      </p>
+      <p style="font-size: 0.75rem; color: var(--text-dim);">
+        Preliminary finding: larger models (26B params) show higher susceptibility to
+        indirect injection via environment data — the capability-security tradeoff.
+      </p>
+    </div>
+
+    <div class="results-grid">
+      <div class="result-slot">
+        <div class="slot-title">Heatmap: Wrapper × Model → ASR</div>
+        <div class="slot-desc">
+          Which delivery techniques succeed against which models?<br>
+          Static, deceptive, multi-turn wrappers across 3+ models.
+        </div>
+      </div>
+      <div class="result-slot">
+        <div class="slot-title">Bar Chart: Channel Effectiveness</div>
+        <div class="slot-desc">
+          Attack success rate by delivery channel.<br>
+          environment_state vs user_prompt vs tool_description vs tool_output.
+        </div>
+      </div>
+      <div class="result-slot">
+        <div class="slot-title">Static vs Adaptive</div>
+        <div class="slot-desc">
+          One-shot payloads vs PAIR vs TAP vs Crescendo.<br>
+          How much does iterative refinement improve ASR?
+        </div>
+      </div>
+      <div class="result-slot">
+        <div class="slot-title">The Silent Attack</div>
+        <div class="slot-desc">
+          Demo: agent output looks clean, but MiDojo catches the unauthorized
+          tool call via environment state verification.
+          <br><strong>Input/output testing misses this. MiDojo doesn't.</strong>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ ROW 4: Try It Yourself ═══ -->
+  <div class="panel grid-full">
+    <h2>Red-Team Your Agent in 3 Commands</h2>
+    <p class="subtitle">No agent modification required. Works with any MCP-compatible agent.</p>
+
+    <div class="code-block">
+<span class="comment"># 1. Start MiDojo control plane + fake MCP server</span>
+<span class="cmd">midojo-serve</span> <span class="flag">--suite</span> <span class="val">minibank</span> <span class="flag">--port</span> <span class="val">8080</span>
+<span class="cmd">minibank-fake-mcp-serve</span> <span class="flag">--port</span> <span class="val">8082</span> <span class="flag">--upstream-url</span> <span class="val">http://localhost:8081/mcp</span>
+
+<span class="comment"># 2. Run static attacks across all channels</span>
+<span class="cmd">midojo-run</span> <span class="flag">--agent-url</span> <span class="val">http://your-agent:8080</span> <span class="flag">--protocol</span> <span class="val">openai</span> <span class="flag">--suite</span> <span class="val">minibank</span>
+
+<span class="comment"># 3. Run adaptive attacks (PAIR with an attacker LLM)</span>
+<span class="cmd">midojo-run</span> <span class="flag">--agent-url</span> <span class="val">http://your-agent:8080</span> <span class="flag">--protocol</span> <span class="val">openai</span> <span class="flag">--suite</span> <span class="val">minibank</span> \
+    <span class="flag">--attacker-model</span> <span class="val">gpt-4o</span> <span class="flag">--attacker-api-key</span> <span class="val">$OPENAI_API_KEY</span>
+    </div>
+
+    <div style="display: flex; gap: 24px; margin-top: 20px; align-items: center;">
+      <div style="flex: 1;">
+        <h3 style="color: var(--accent); margin: 0 0 8px;">Supported Protocols</h3>
+        <p style="font-size: 0.82rem; color: var(--text-dim);">
+          OpenAI Responses API · OGX · A2A · HTTP · PI
+          <br>Test any agent without modifying its code.
+        </p>
+      </div>
+      <div style="flex: 1;">
+        <h3 style="color: var(--accent); margin: 0 0 8px;">Pluggable Backends</h3>
+        <p style="font-size: 0.82rem; color: var(--text-dim);">
+          In-memory dict (fast) · OpenShell containers (sandboxed)
+          <br>From unit tests to production-like environments.
+        </p>
+      </div>
+      <div style="flex: 1;">
+        <h3 style="color: var(--accent); margin: 0 0 8px;">Pipeline Integration</h3>
+        <p style="font-size: 0.82rem; color: var(--text-dim);">
+          Works standalone or with automated scenario generation
+          <br>(policy-mapper → scenario-forge → MiDojo).
+        </p>
+      </div>
+      <div style="text-align: center; padding: 16px; background: var(--bg); border-radius: 12px; border: 1px solid var(--border);">
+        <div style="font-size: 0.7rem; color: var(--text-dim); margin-bottom: 4px;">QR_CODE_PLACEHOLDER</div>
+        <div style="width: 80px; height: 80px; background: var(--surface-hover); border-radius: 8px; margin: 0 auto; display: flex; align-items: center; justify-content: center; font-size: 2rem;">📱</div>
+        <div style="font-size: 0.65rem; color: var(--text-dim); margin-top: 4px;">github.com/asago-ai/midojo</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    MiDojo is open source under the Apache 2.0 license · <a href="https://github.com/asago-ai/midojo">github.com/asago-ai/midojo</a> · DEF CON 34 AI Village, August 2026
+  </div>
+
+</div>
+</body>
+</html>
