@@ -366,7 +366,7 @@ async def run_task(
         attack_spec = suite.injection_tasks[injection_task_id].attack_spec
 
     if attack_spec and attack_spec.get("strategy") not in (None, "static"):
-        from redteam_attacks import Attack, AttackContext, EvalResult, Injection
+        from redteam_attacks import Attack, AttackContext, EvalResult, Injection, TargetContext
 
         async def _eval_callback(inj: Injection) -> EvalResult:
             raw = await _run_single_eval(
@@ -386,12 +386,55 @@ async def run_task(
                 user_task_id, injection_task_id, turn_generator,
             )
 
+        # Build target context for the attacker LLM.
+        # Tools and dry-run trace are always available (black-box).
+        # System prompt is only available when testing your own agent.
+        tool_defs = [t.model_dump() for t in suite.get_tool_definitions()]
+        system_prompt = ""
+        try:
+            mod = importlib.import_module(f"suites.{suite.name}" if "." not in suite.name else suite.name)
+            system_prompt = getattr(mod, "SYSTEM_MESSAGE", "")
+        except (ImportError, AttributeError):
+            pass
+
+        user_prompt = suite.user_tasks[user_task_id].prompt if user_task_id in suite.user_tasks else ""
+
+        env_summary = ""
+        try:
+            env_schema = suite.environment_type.model_json_schema()
+            fields = env_schema.get("properties", {})
+            env_parts = []
+            for fname, finfo in fields.items():
+                ftype = finfo.get("type", "?")
+                env_parts.append(f"  {fname}: {ftype}")
+            env_summary = "Fields:\n" + "\n".join(env_parts) if env_parts else ""
+        except Exception:
+            pass
+
+        # Dry-run: run the task with no injections to see what the agent normally does
+        dry_run_trace: list[dict] = []
+        try:
+            dry_inj = Injection(probes={})
+            dry_result = await _eval_callback(dry_inj)
+            dry_run_trace = dry_result.function_calls
+        except Exception:
+            pass
+
+        target = TargetContext(
+            tools=tool_defs,
+            system_prompt=system_prompt,
+            user_task_prompt=user_prompt,
+            environment_summary=env_summary,
+            dry_run_trace=dry_run_trace,
+        )
+
         ctx = AttackContext(
             run_evaluation=_eval_callback,
             run_multi_turn=_multi_turn_callback,
             tool_names=suite.get_tool_names(),
             user_task_id=user_task_id,
             injection_task_id=injection_task_id or "",
+            target=target,
             attacker_model=(attacker_config or {}).get("attacker_model"),
             attacker_base_url=(attacker_config or {}).get("attacker_base_url"),
             attacker_api_key=(attacker_config or {}).get("attacker_api_key"),
