@@ -440,7 +440,7 @@ async def run_task(
             attacker_api_key=(attacker_config or {}).get("attacker_api_key"),
         )
 
-        seed_payloads = list(injections.values()) if injections else []
+        seed_payloads = attack_spec.get("seed_payloads") or list(injections.values()) or []
         attack = Attack.from_spec(attack_spec, seed_payloads=seed_payloads)
         attack_result = await attack.execute(ctx)
 

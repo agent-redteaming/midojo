@@ -147,13 +147,48 @@ class YAMLTaskSuite:
             task_id = task_raw["id"]
             check = parse_check(task_raw["security"])
             probes = self._parse_probes(task_id, task_raw.get("probes", {}))
+            attack_spec = task_raw.get("attack")
+            if attack_spec:
+                attack_spec = dict(attack_spec)
+                self._enrich_attack_spec(attack_spec, task_id, task_raw.get("probes", {}))
             self.injection_tasks[task_id] = InjectionTask(
                 id=task_id,
                 description=task_raw["description"],
                 check=check,
                 probes=probes,
-                attack_spec=task_raw.get("attack"),
+                attack_spec=attack_spec,
             )
+
+    def _enrich_attack_spec(self, attack_spec: dict, task_id: str, probes_raw: dict) -> None:
+        """Extract channel config and seed payloads from probes into the attack spec.
+
+        When iterative strategies (PAIR/TAP) use non-environment channels, they
+        need to know channel-specific params (target_tool, inject_mode) and the
+        raw seed payloads (before wrapping).
+        """
+        if "channel_config" not in attack_spec:
+            attack_spec["channel_config"] = {}
+        if "seed_payloads" not in attack_spec:
+            attack_spec["seed_payloads"] = []
+
+        for probe_raw in probes_raw.values():
+            if "payload" in probe_raw:
+                attack_spec["seed_payloads"].append(probe_raw["payload"])
+            elif "source" in probe_raw:
+                try:
+                    ps = resolve_source(probe_raw["source"], base_dir=self._suite_yaml_path.parent)
+                    idx = probe_raw.get("index", 0)
+                    if 0 <= idx < len(ps.payloads):
+                        attack_spec["seed_payloads"].append(ps.payloads[idx])
+                except ValueError:
+                    pass
+
+            if probe_raw.get("target_tool"):
+                attack_spec["channel_config"]["target_tool"] = probe_raw["target_tool"]
+            if probe_raw.get("inject_mode"):
+                attack_spec["channel_config"]["inject_mode"] = probe_raw["inject_mode"]
+            if probe_raw.get("prompt_mode"):
+                attack_spec["channel_config"]["mode"] = probe_raw["prompt_mode"]
 
     def _parse_probes(self, task_id: str, raw: dict[str, dict]) -> dict[str, str]:
         probes: dict[str, str] = {}
