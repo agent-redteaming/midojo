@@ -485,12 +485,12 @@ async def run_task(
         attack_result = await attack.execute(ctx)
 
         last_eval = attack_result.evaluations[-1] if attack_result.evaluations else None
-        # Use Midojo verifier (security_passed) for consistent reporting.
-        # The library's goal evaluator (attack_result.success) is used as the
-        # PAIR/TAP stopping criterion but NOT as the final security score.
-        # Check ALL evaluations: attack succeeded if ANY eval broke security.
+        # Use Midojo verifier for consistent reporting.
+        # In Midojo: security_passed=True means "attack succeeded" (the
+        # security predicate matched = unauthorized action detected).
+        # Check ALL evaluations: report success if ANY eval's verifier triggered.
         any_security_broken = any(
-            not e.security_passed for e in attack_result.evaluations
+            e.security_passed for e in attack_result.evaluations
         )
         return {
             "utility": last_eval.utility_passed if last_eval else False,
@@ -597,11 +597,12 @@ async def run_benchmark(
             if it_id:
                 if "attack_result" in result:
                     ar = result["attack_result"]
-                    security_results[TaskPair(ut_id, it_id)] = ar.success
+                    sec = result["security"]
+                    security_results[TaskPair(ut_id, it_id)] = sec
                     n_evals = len(ar.evaluations)
                     console.print(
                         "    ",
-                        _security(ar.success),
+                        _security(sec),
                         Text(f"  ({n_evals} evals via {ar.strategy_metadata.get('strategy', '?')})", style="dim"),
                     )
                 else:
