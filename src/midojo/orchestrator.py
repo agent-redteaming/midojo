@@ -358,6 +358,7 @@ async def run_task(
     memory_entries: list | None = None,
     inter_agent_messages: list | None = None,
     attacker_config: dict | None = None,
+    dry_run_cache: dict | None = None,
 ) -> dict:
     from midojo.types import InterAgentMessage, MemoryEntry, OutputHook, PromptModification, ToolModification
 
@@ -411,14 +412,23 @@ async def run_task(
         except Exception:
             pass
 
-        # Dry-run: run the task with no injections to see what the agent normally does
+        # Dry-run: observe what the agent normally does (no injection).
+        # Creates a control plane eval (needed for MCP tool call recording)
+        # but not included in attack_result.evaluations.
+        # - Optional via attack spec `dry_run: false` (default true)
+        # - Cached per user_task across injection tasks via dry_run_cache
         dry_run_trace: list[dict] = []
-        try:
-            dry_inj = Injection(probes={})
-            dry_result = await _eval_callback(dry_inj)
-            dry_run_trace = dry_result.function_calls
-        except Exception:
-            pass
+        if attack_spec.get("dry_run", True):
+            if dry_run_cache is not None and user_task_id in dry_run_cache:
+                dry_run_trace = dry_run_cache[user_task_id]
+            else:
+                try:
+                    dry_result = await _eval_callback(Injection(probes={}))
+                    dry_run_trace = dry_result.function_calls
+                except Exception:
+                    pass
+                if dry_run_cache is not None:
+                    dry_run_cache[user_task_id] = dry_run_trace
 
         target = TargetContext(
             tools=tool_defs,
@@ -530,6 +540,7 @@ async def run_benchmark(
 
     utility_results: dict[TaskPair, bool] = {}
     security_results: dict[TaskPair, bool] = {}
+    dry_run_cache: dict[str, list] = {}
 
     it_ids_to_run: list[str | None] = injection_tasks_to_run or [None]
     for ut_id in user_tasks_to_run:
@@ -543,7 +554,7 @@ async def run_benchmark(
             result = await run_task(
                 control_url, agent_client, run_id, suite, ut_id, it_id,
                 injections, prompt_injs, tool_mods, output_hooks, mem_entries, ia_messages,
-                attacker_config,
+                attacker_config, dry_run_cache,
             )
             utility_results[TaskPair(ut_id, it_id or "")] = result["utility"]
             eval_id = result["eval_id"]
