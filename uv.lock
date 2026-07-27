@@ -1370,7 +1370,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
     { name = "python-dotenv", extras = ["cli"], marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "pyyaml", specifier = ">=6.0.1" },
-    { name = "redteam-attacks", editable = "../redteam-attacks" },
+    { name = "redteam-attacks", git = "https://github.com/saichandrapandraju/redteam-attacks.git" },
     { name = "rich", specifier = ">=13.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.3.0" },
     { name = "uvicorn", specifier = ">=0.34" },
@@ -2482,21 +2482,10 @@ wheels = [
 [[package]]
 name = "redteam-attacks"
 version = "0.1.0"
-source = { editable = "../redteam-attacks" }
+source = { git = "https://github.com/saichandrapandraju/redteam-attacks.git#3f5f8abc6f8ddd0f22550dab691bc1fd80541611" }
 dependencies = [
     { name = "pydantic" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "anthropic", marker = "extra == 'adaptive'", specifier = ">=0.30" },
-    { name = "openai", marker = "extra == 'adaptive'", specifier = ">=1.0" },
-    { name = "pydantic", specifier = ">=2.0" },
-    { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.362" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.3.0" },
-]
-provides-extras = ["adaptive", "dev"]
 
 [[package]]
 name = "referencing"

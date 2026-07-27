@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-redteam-attacks = { path = "../redteam-attacks", editable = true }
+redteam-attacks = { git = "https://github.com/saichandrapandraju/redteam-attacks.git" }
 
 [project.optional-dependencies]
 # Dependencies for running the bundled suites' example agents (a2a, ogx, ...).
