@@ -10,7 +10,15 @@ from midojo.app.models import ToolInfoResponse
 from midojo.attacks import resolve_source, wrap_payload
 from midojo.backends import EnvironmentBackend, build_backend
 from midojo.probes import substitute_probes
-from midojo.types import Environment, FunctionCallRecord
+from midojo.types import (
+    Environment,
+    FunctionCallRecord,
+    InterAgentMessage,
+    MemoryEntry,
+    OutputHook,
+    PromptModification,
+    ToolModification,
+)
 from midojo.verifier import Check, VerificationContext, parse_check
 
 
@@ -27,6 +35,7 @@ class InjectionTask:
     description: str
     probes: dict[str, str] = field(default_factory=dict)
     check: Check | None = None
+    attack_spec: dict | None = None
 
 
 class YAMLTaskSuite:
@@ -44,6 +53,11 @@ class YAMLTaskSuite:
         self.backend: EnvironmentBackend = backend or build_backend(name, self._suite_raw["environment"])
         self.user_tasks: dict[str, UserTask] = {}
         self.injection_tasks: dict[str, InjectionTask] = {}
+        self._prompt_injections: dict[str, PromptModification] = {}
+        self._tool_modifications: dict[str, ToolModification] = {}
+        self._output_hooks: dict[str, OutputHook] = {}
+        self._memory_entries: dict[str, MemoryEntry] = {}
+        self._inter_agent_messages: dict[str, InterAgentMessage] = {}
         self._register_tasks()
 
     @property
@@ -59,6 +73,31 @@ class YAMLTaskSuite:
     def get_probes_for_task(self, task_id: str) -> dict[str, str]:
         probes = self.injection_tasks[task_id].probes
         return {f"{task_id}:{probe_id}": payload for probe_id, payload in probes.items()}
+
+    def get_prompt_injections_for_task(self, task_id: str) -> list[PromptModification]:
+        """Return prompt-channel injections for the given injection task."""
+        prefix = f"{task_id}:"
+        return [mod for key, mod in self._prompt_injections.items() if key.startswith(prefix)]
+
+    def get_tool_modifications_for_task(self, task_id: str) -> list[ToolModification]:
+        """Return tool-description-channel modifications for the given injection task."""
+        prefix = f"{task_id}:"
+        return [mod for key, mod in self._tool_modifications.items() if key.startswith(prefix)]
+
+    def get_output_hooks_for_task(self, task_id: str) -> list[OutputHook]:
+        """Return tool-output-channel hooks for the given injection task."""
+        prefix = f"{task_id}:"
+        return [hook for key, hook in self._output_hooks.items() if key.startswith(prefix)]
+
+    def get_memory_entries_for_task(self, task_id: str) -> list[MemoryEntry]:
+        """Return memory-channel entries for the given injection task."""
+        prefix = f"{task_id}:"
+        return [entry for key, entry in self._memory_entries.items() if key.startswith(prefix)]
+
+    def get_inter_agent_messages_for_task(self, task_id: str) -> list[InterAgentMessage]:
+        """Return inter-agent-channel messages for the given injection task."""
+        prefix = f"{task_id}:"
+        return [msg for key, msg in self._inter_agent_messages.items() if key.startswith(prefix)]
 
     def grade(
         self,
@@ -108,19 +147,100 @@ class YAMLTaskSuite:
             task_id = task_raw["id"]
             check = parse_check(task_raw["security"])
             probes = self._parse_probes(task_id, task_raw.get("probes", {}))
+            attack_spec = task_raw.get("attack")
+            if attack_spec:
+                attack_spec = dict(attack_spec)
+                self._enrich_attack_spec(attack_spec, task_id, task_raw.get("probes", {}))
             self.injection_tasks[task_id] = InjectionTask(
                 id=task_id,
                 description=task_raw["description"],
                 check=check,
                 probes=probes,
+                attack_spec=attack_spec,
             )
+
+    def _enrich_attack_spec(self, attack_spec: dict, task_id: str, probes_raw: dict) -> None:
+        """Extract channel config and seed payloads from probes into the attack spec.
+
+        When iterative strategies (PAIR/TAP) use non-environment channels, they
+        need to know channel-specific params (target_tool, inject_mode) and the
+        raw seed payloads (before wrapping).
+        """
+        if "channel_config" not in attack_spec:
+            attack_spec["channel_config"] = {}
+        if "seed_payloads" not in attack_spec:
+            attack_spec["seed_payloads"] = []
+
+        for probe_raw in probes_raw.values():
+            if "payload" in probe_raw:
+                attack_spec["seed_payloads"].append(probe_raw["payload"])
+            elif "source" in probe_raw:
+                try:
+                    ps = resolve_source(probe_raw["source"], base_dir=self._suite_yaml_path.parent)
+                    idx = probe_raw.get("index", 0)
+                    if 0 <= idx < len(ps.payloads):
+                        attack_spec["seed_payloads"].append(ps.payloads[idx])
+                except ValueError:
+                    pass
+
+            if probe_raw.get("target_tool"):
+                attack_spec["channel_config"]["target_tool"] = probe_raw["target_tool"]
+            if probe_raw.get("inject_mode"):
+                attack_spec["channel_config"]["inject_mode"] = probe_raw["inject_mode"]
+            if probe_raw.get("prompt_mode"):
+                attack_spec["channel_config"]["mode"] = probe_raw["prompt_mode"]
 
     def _parse_probes(self, task_id: str, raw: dict[str, dict]) -> dict[str, str]:
         probes: dict[str, str] = {}
         for probe_id, probe_raw in raw.items():
             try:
                 payload = self._resolve_probe_payload(probe_raw)
-                probes[probe_id] = wrap_payload(payload, probe_raw.get("attack_type", "verbatim"))
+                attack_type = probe_raw.get("attack_type", "verbatim")
+                if isinstance(attack_type, list):
+                    wrapped = payload
+                    for wrapper_id in attack_type:
+                        wrapped = wrap_payload(wrapped, wrapper_id)
+                else:
+                    wrapped = wrap_payload(payload, attack_type)
+
+                channel = probe_raw.get("channel", "environment_state")
+                if channel == "user_prompt":
+                    mode = probe_raw.get("prompt_mode", "append")
+                    self._prompt_injections[f"{task_id}:{probe_id}"] = PromptModification(
+                        mode=mode,
+                        content=wrapped,
+                    )
+                elif channel == "tool_description":
+                    target_tool = probe_raw.get("target_tool")
+                    if not target_tool:
+                        raise ValueError("channel 'tool_description' requires 'target_tool'")
+                    self._tool_modifications[f"{task_id}:{probe_id}"] = ToolModification(
+                        tool_name=target_tool,
+                        append_to_description=f"\n{wrapped}",
+                    )
+                elif channel == "tool_output":
+                    target_tool = probe_raw.get("target_tool")
+                    if not target_tool:
+                        raise ValueError("channel 'tool_output' requires 'target_tool'")
+                    self._output_hooks[f"{task_id}:{probe_id}"] = OutputHook(
+                        tool_name=target_tool,
+                        inject_in_response=wrapped,
+                        inject_mode=probe_raw.get("inject_mode", "append"),
+                    )
+                elif channel == "memory":
+                    self._memory_entries[f"{task_id}:{probe_id}"] = MemoryEntry(
+                        content=wrapped,
+                        source=probe_raw.get("memory_source", "system"),
+                    )
+                elif channel == "inter_agent":
+                    target_agent = probe_raw.get("target_agent", "")
+                    self._inter_agent_messages[f"{task_id}:{probe_id}"] = InterAgentMessage(
+                        target_agent=target_agent,
+                        content=wrapped,
+                        impersonate_agent=probe_raw.get("impersonate_agent"),
+                    )
+                else:
+                    probes[probe_id] = wrapped
             except ValueError as e:
                 raise ValueError(f"Probe '{task_id}:{probe_id}': {e}") from None
         return probes

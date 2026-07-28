@@ -21,6 +21,21 @@ from midojo.attacks.builtin import BUILTIN_TECHNIQUES
 from midojo.attacks.records import AttackTechnique, Origin, PayloadSet
 from midojo.attacks.taxonomy import ASICategory, parse_asi_category
 
+_BUILTIN_IDS = {t.id for t in BUILTIN_TECHNIQUES}
+
+
+def _load_external_techniques() -> list[AttackTechnique]:
+    """Import wrappers from the redteam-attacks package if installed."""
+    try:
+        from redteam_attacks import ALL_WRAPPERS
+    except ImportError:
+        return []
+    return [
+        AttackTechnique(id=w.id, wrapper=w.fn, description=w.description)
+        for w in ALL_WRAPPERS
+        if w.id not in _BUILTIN_IDS
+    ]
+
 _DATA_DIR = Path(__file__).parent / "data"
 _FILE_SCHEME = "file:"
 
@@ -100,7 +115,10 @@ def _load_vendored_payload_sets() -> list[PayloadSet]:
 
 
 # The default library every suite resolves against.
-DEFAULT_LIBRARY = AttackLibrary(BUILTIN_TECHNIQUES, _load_vendored_payload_sets())
+DEFAULT_LIBRARY = AttackLibrary(
+    BUILTIN_TECHNIQUES + _load_external_techniques(),
+    _load_vendored_payload_sets(),
+)
 
 
 def resolve_source(

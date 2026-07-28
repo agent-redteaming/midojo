@@ -14,7 +14,11 @@ dependencies = [
     "a2a-sdk>=1.0",
     "protobuf>=5.29,<6",
     "rich>=13.0",
+    "redteam-attacks",
 ]
+
+[tool.uv.sources]
+redteam-attacks = { git = "https://github.com/saichandrapandraju/redteam-attacks.git" }
 
 [project.optional-dependencies]
 # Dependencies for running the bundled suites' example agents (a2a, ogx, ...).
