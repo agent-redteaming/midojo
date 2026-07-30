@@ -64,6 +64,8 @@ class RecordObservationsRequest(BaseModel):
 class GradeResponse(BaseModel):
     utility: bool
     security: bool
+    # human-readable predicate that held when security is True (else None)
+    security_reason: str | None = None
 
 
 class EvaluationSummary(BaseModel):

@@ -273,10 +273,10 @@ async def run_benchmark(
                     parts = [f"{ch} x{n}" if n > 1 else ch for ch, n in counts.items()]
                     via = ", ".join(parts)
                     detail = f"injection in {via}"
-                    check = suite.injection_tasks[it_id].check
-                    if result["security"] and check is not None:
-                        # attack succeeded — say which predicate was satisfied
-                        detail += f" · satisfied: {check.describe()}"
+                    reason = result.get("security_reason")
+                    if result["security"] and reason:
+                        # attack succeeded — name the predicate that actually held
+                        detail += f" · satisfied: {reason}"
                     console.print("    ", _security(result["security"]), Text(f"  ({detail})", style="dim"))
                 else:
                     console.print("    ", Text("N/A (payload not in any result)", style="dim"))

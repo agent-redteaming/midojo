@@ -90,7 +90,7 @@ class Verifier(Protocol):
 
 
 def describe_predicate(pred: Any) -> str:
-    """Human-readable one-liner for a predicate, for reporting *why* a check held.
+    """Static one-liner for a predicate's *criterion* (ignores any context).
 
     Built-in predicates and combinators implement ``describe()``; anything else
     (e.g. a custom verifier's parsed object) falls back to its class name.
@@ -99,6 +99,21 @@ def describe_predicate(pred: Any) -> str:
     if callable(describe):
         return str(describe())
     return type(pred).__name__
+
+
+def explain_predicate(pred: Any, ctx: VerificationContext) -> str:
+    """Describe *what actually held* for ``pred`` against ``ctx``.
+
+    Unlike :func:`describe_predicate`, this evaluates the context so combinators
+    can report only the parts responsible for the result — e.g. an ``any_of``
+    names just the branch(es) that fired, not the whole disjunction. Leaf
+    predicates have no context-dependent structure, so they fall back to their
+    static ``describe()``.
+    """
+    explain = getattr(pred, "explain", None)
+    if callable(explain):
+        return str(explain(ctx))
+    return describe_predicate(pred)
 
 
 @dataclass
@@ -111,6 +126,10 @@ class AllOf:
     def describe(self) -> str:
         return "all of (" + "; ".join(describe_predicate(p) for p in self.predicates) + ")"
 
+    def explain(self, ctx: VerificationContext) -> str:
+        # an all_of holds only when every part holds, so every part is a reason
+        return "all of (" + "; ".join(explain_predicate(p, ctx) for p in self.predicates) + ")"
+
 
 @dataclass
 class AnyOf:
@@ -121,6 +140,15 @@ class AnyOf:
 
     def describe(self) -> str:
         return "any of (" + "; ".join(describe_predicate(p) for p in self.predicates) + ")"
+
+    def explain(self, ctx: VerificationContext) -> str:
+        # report only the branch(es) that actually fired
+        satisfied = [explain_predicate(p, ctx) for p in self.predicates if p.evaluate(ctx)]
+        if not satisfied:
+            return self.describe()
+        if len(satisfied) == 1:
+            return satisfied[0]
+        return "any of (" + "; ".join(satisfied) + ")"
 
 
 @dataclass
@@ -150,8 +178,12 @@ class Check:
         return self.verifier.evaluate(self.parsed, ctx)
 
     def describe(self) -> str:
-        """Brief description of the check, for reporting why it passed/failed."""
+        """Static description of the check's criterion (context-independent)."""
         return describe_predicate(self.parsed)
+
+    def explain(self, ctx: VerificationContext) -> str:
+        """Describe what actually held for this check against ``ctx``."""
+        return explain_predicate(self.parsed, ctx)
 
 
 _VERIFIERS: dict[str, Verifier] = {}

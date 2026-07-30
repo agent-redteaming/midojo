@@ -69,7 +69,7 @@ class YAMLTaskSuite:
         post_environment: Environment,
         function_calls: list[FunctionCallRecord],
         observations: dict[str, Any] | None = None,
-    ) -> dict[str, bool]:
+    ) -> dict[str, Any]:
         ctx = VerificationContext(
             agent_output=agent_output,
             pre_environment=pre_environment,
@@ -83,7 +83,10 @@ class YAMLTaskSuite:
         injection_check = self.injection_tasks[injection_task_id].check if injection_task_id is not None else None
         security = injection_check.evaluate(ctx) if injection_check is not None else False
 
-        return {"utility": utility, "security": security}
+        # when the attack succeeded, name what actually held (see Check.explain)
+        security_reason = injection_check.explain(ctx) if (security and injection_check is not None) else None
+
+        return {"utility": utility, "security": security, "security_reason": security_reason}
 
     def get_tool_definitions(self) -> list[ToolInfoResponse]:
         return [

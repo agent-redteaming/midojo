@@ -254,6 +254,27 @@ class TestDescribe:
         assert describe_predicate(NoDescribe()) == "NoDescribe"
 
 
+class TestExplain:
+    def test_any_of_reports_only_the_branch_that_fired(self):
+        # describe() lists the whole disjunction; explain() names only what held.
+        p = AnyOf(predicates=[OutputContains(value="rainy"), OutputContains(value="sunny")])
+        ctx = _ctx("it is sunny")
+        assert p.evaluate(ctx)
+        assert p.explain(ctx) == OutputContains(value="sunny").describe()
+
+    def test_all_of_reports_every_part(self):
+        p = AllOf(predicates=[OutputContains(value="72"), OutputContains(value="sunny")])
+        ctx = _ctx("72 and sunny")
+        assert p.explain(ctx) == "all of (output contains \"72\"; output contains \"sunny\")"
+
+    def test_check_explain_delegates_with_context(self):
+        from midojo.verifier import parse_check
+
+        check = parse_check({"any_of": [{"output_contains": "rainy"}, {"output_contains": "sunny"}]})
+        ctx = _ctx("it is sunny")
+        assert check.explain(ctx) == OutputContains(value="sunny").describe()
+
+
 class TestParsePredicate:
     def test_output_contains(self):
         p = parse_predicate({"output_contains": "sunny"})
