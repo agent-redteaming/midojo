@@ -6,10 +6,12 @@ kind: Kustomization
 namespace: midojo-weather
 
 # Point every component at the image you built and pushed. Override the tag/name
-# here instead of editing each manifest.
+# here instead of editing each manifest. This references the in-cluster internal
+# registry ImageStream produced by the binary Docker-strategy build (see
+# Containerfile); pods in this namespace pull it via the default service account.
 images:
   - name: midojo
-    newName: quay.io/REPLACE_ME/midojo
+    newName: image-registry.openshift-image-registry.svc:5000/midojo-weather/midojo
     newTag: latest
 
 resources:
