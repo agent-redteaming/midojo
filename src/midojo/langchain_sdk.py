@@ -62,10 +62,15 @@ class MidojoToolkit:
     def __init__(
         self,
         *,
-        control_plane_url: str,
+        control_plane_url: str | None = None,
+        client: ControlPlaneClient | None = None,
         real_tools: list[BaseTool] | None = None,
     ) -> None:
-        self._client = ControlPlaneClient(control_plane_url)
+        if client is None:
+            if control_plane_url is None:
+                raise ValueError("Provide either control_plane_url or client")
+            client = ControlPlaneClient(control_plane_url)
+        self._client = client
         self._real_tools: dict[str, BaseTool] = {}
         if real_tools:
             for t in real_tools:

@@ -31,14 +31,10 @@ def _make_client(app: FastAPI) -> ControlPlaneClient:
 def toolkit(app):
     """A MidojoToolkit wired to the live test control plane, no real upstream.
 
-    Bypasses ``__init__`` so the control-plane client can talk to the in-process
-    test app over ASGI instead of a real HTTP endpoint.
+    Injects a ControlPlaneClient backed by the in-process test app (ASGI)
+    instead of a real HTTP endpoint.
     """
-    tk = MidojoToolkit.__new__(MidojoToolkit)
-    tk._client = _make_client(app)
-    tk._real_tools = {}
-    tk._tools = []
-    return tk
+    return MidojoToolkit(client=_make_client(app))
 
 
 # --- Real tools for testing ---
@@ -74,6 +70,11 @@ def test_toolkit_tool_registration():
     schema = t.args
     assert "name" in schema
     assert "ctx" not in schema
+
+
+def test_toolkit_requires_url_or_client():
+    with pytest.raises(ValueError, match="control_plane_url or client"):
+        MidojoToolkit()
 
 
 def test_toolkit_requires_ctx():
