@@ -18,6 +18,7 @@ from rich.text import Text
 from midojo.agent_client import (
     A2AAgentClient,
     AgentClient,
+    LangGraphAgentClient,
     OGXResponsesClient,
     OpenAIResponsesAgentClient,
     OpenShellAgentClient,
@@ -389,7 +390,7 @@ async def run_benchmark(
     "--agent-uri",
     required=True,
     help="Where to reach the agent. A URL for http/a2a/ogx/openai; a local path to the "
-    "agent dir for pi; the OpenShell gateway name for openshell.",
+    "agent dir for pi/langgraph; the OpenShell gateway name for openshell.",
 )
 @click.option(
     "--suite", "suite_name", required=True, help=f"Benchmark suite name. Built-in: {', '.join(list_suites())}."
@@ -404,7 +405,7 @@ async def run_benchmark(
 )
 @click.option(
     "--protocol",
-    type=click.Choice(["http", "a2a", "pi", "ogx", "openai", "openshell"]),
+    type=click.Choice(["http", "a2a", "pi", "langgraph", "ogx", "openai", "openshell"]),
     required=True,
     help="Agent communication protocol. "
     "API keys are read from env vars: OPENAI_API_KEY (openai), OGX_CLIENT_API_KEY (ogx). "
@@ -427,6 +428,13 @@ async def run_benchmark(
     help="Model ID for the Responses API (ogx and openai protocols). "
     "Env: MODEL_NAME. Example: gpt-4o-mini, ollama/qwen3.5:2b.",
 )
+@click.option(
+    "--graph-name",
+    default=None,
+    envvar="GRAPH_NAME",
+    help="Assistant/graph name registered with the LangGraph Agent Server "
+    "(langgraph protocol only). Env: GRAPH_NAME. Defaults to the suite name.",
+)
 def main(
     control_url: str,
     agent_uri: str,
@@ -439,6 +447,7 @@ def main(
     ogx_shield: str | None,
     mcp_server_label: str | None,
     model_name: str | None,
+    graph_name: str | None,
 ) -> None:
     for module in modules_to_load:
         importlib.import_module(module)
@@ -459,6 +468,8 @@ def main(
         agent_client = A2AAgentClient(agent_uri)
     elif protocol == "pi":
         agent_client = PIAgentClient(agent_uri, control_url)
+    elif protocol == "langgraph":
+        agent_client = LangGraphAgentClient(agent_uri, graph_name or suite_name.rsplit(".", 1)[-1])
     elif protocol == "ogx":
         system_message = _resolve_system_message(suite_name)
         agent_client = OGXResponsesClient(

@@ -1,0 +1,6 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "weather": "suites.weather.langchain_agent.graph:graph"
+  }
+}

@@ -12,6 +12,21 @@ if TYPE_CHECKING:
     from midojo.openshell_backend import OpenShellBackend
 
 
+def _content_to_text(content: object) -> str:
+    """Coerce a chat message ``content`` (str or list of blocks) to text."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+        return "".join(parts)
+    return str(content)
+
+
 class AgentClient(abc.ABC):
     @abc.abstractmethod
     async def send_task(self, prompt: str) -> str:
@@ -196,6 +211,43 @@ class OGXResponsesClient(AgentClient):
         return response.output_text
 
 
+class LangGraphAgentClient(AgentClient):
+    """Drives a LangGraph Agent Server (e.g. ``langgraph dev``) over HTTP.
+
+    A LangChain 1.x ``create_agent`` compiles to a LangGraph graph, which the
+    Agent Server exposes as an *assistant*.  Each task is a stateless run:
+    send the user message to the assistant, wait for the run to finish, and
+    return the final assistant message text.  Uses the ``langgraph-sdk``
+    client so we speak the server's native API rather than a bespoke shape.
+    """
+
+    def __init__(
+        self,
+        agent_url: str,
+        graph_name: str,
+        *,
+        timeout: float = 120.0,
+    ) -> None:
+        self.agent_url = agent_url
+        self.graph_name = graph_name
+        self.timeout = timeout
+
+    async def send_task(self, prompt: str) -> str:
+        from langgraph_sdk import get_client
+
+        client = get_client(url=self.agent_url)
+        # thread_id=None → a stateless (threadless) run, one per eval.
+        result = await client.runs.wait(
+            None,
+            self.graph_name,
+            input={"messages": [{"role": "user", "content": prompt}]},
+        )
+        messages = result.get("messages", []) if isinstance(result, dict) else []
+        if not messages:
+            return ""
+        return _content_to_text(messages[-1].get("content", ""))
+
+
 class PIAgentClient(AgentClient):
     """Launches a PI coding agent as a subprocess for each task.
 
@@ -221,7 +273,10 @@ class PIAgentClient(AgentClient):
         }
 
         proc = await asyncio.create_subprocess_exec(
-            "pi", "-p", "--no-session", prompt,
+            "pi",
+            "-p",
+            "--no-session",
+            prompt,
             cwd=self.agent_dir,
             env=env,
             stdout=asyncio.subprocess.PIPE,
@@ -229,18 +284,14 @@ class PIAgentClient(AgentClient):
         )
 
         try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=self.timeout
-            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=self.timeout)
         except TimeoutError:
             proc.kill()
             await proc.wait()
             raise TimeoutError(f"PI agent timed out after {self.timeout}s")
 
         if proc.returncode != 0:
-            raise RuntimeError(
-                f"PI agent exited with code {proc.returncode}: {stderr.decode()}"
-            )
+            raise RuntimeError(f"PI agent exited with code {proc.returncode}: {stderr.decode()}")
 
         return stdout.decode().strip()
 

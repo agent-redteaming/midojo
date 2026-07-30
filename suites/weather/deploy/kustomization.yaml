@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Deploy everything into one namespace. Change this (or override with
+# `kustomize build | oc apply -n <ns> -f -`) to suit.
+namespace: midojo-weather
+
+# Point every component at the image you built and pushed. Override the tag/name
+# here instead of editing each manifest.
+images:
+  - name: midojo
+    newName: quay.io/REPLACE_ME/midojo
+    newTag: latest
+
+resources:
+  - control-plane.yaml
+  - agent.yaml
+  - run.job.yaml
+
+# NOTE: the agent's LLM-credentials Secret (weather-llm-creds) is intentionally
+# NOT listed here — create it separately so real creds never get committed.
+# See agent-secret.example.yaml.

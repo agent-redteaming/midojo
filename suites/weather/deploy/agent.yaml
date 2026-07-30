@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weather-langchain-agent
+  labels:
+    app.kubernetes.io/part-of: midojo-weather
+    app.kubernetes.io/component: agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: midojo-weather
+        app.kubernetes.io/component: agent
+    spec:
+      containers:
+        - name: agent
+          image: midojo
+          # A LangChain 1.x `create_agent` is a LangGraph graph; serve it with
+          # the framework-native Agent Server (`langgraph dev`, in-memory).
+          # graph.py wires the in-process tools to the control plane via
+          # MIDOJO_URL, so no separate fake/real MCP servers are needed.
+          command:
+            - langgraph
+            - dev
+            - --config
+            - suites/weather/langchain_agent/langgraph.json
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+            - --no-browser
+            - --no-reload
+          env:
+            - name: MIDOJO_URL
+              value: http://weather-control-plane:8080
+          envFrom:
+            # OPENAI_API_KEY, OPENAI_BASE_URL, MODEL_NAME — see agent-secret.example.yaml
+            - secretRef:
+                name: weather-llm-creds
+          ports:
+            - containerPort: 8000
+          startupProbe:
+            httpGet:
+              path: /ok
+              port: 8000
+            # langgraph dev takes ~15-25s to import deps and register the graph.
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /ok
+              port: 8000
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weather-langchain-agent
+  labels:
+    app.kubernetes.io/part-of: midojo-weather
+spec:
+  selector:
+    app.kubernetes.io/component: agent
+  ports:
+    - port: 8000
+      targetPort: 8000
