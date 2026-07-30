@@ -27,6 +27,20 @@ def _make_client(app: FastAPI) -> ControlPlaneClient:
     return ControlPlaneClient("http://testserver", http=http)
 
 
+@pytest.fixture()
+def toolkit(app):
+    """A MidojoToolkit wired to the live test control plane, no real upstream.
+
+    Bypasses ``__init__`` so the control-plane client can talk to the in-process
+    test app over ASGI instead of a real HTTP endpoint.
+    """
+    tk = MidojoToolkit.__new__(MidojoToolkit)
+    tk._client = _make_client(app)
+    tk._real_tools = {}
+    tk._tools = []
+    return tk
+
+
 # --- Real tools for testing ---
 
 
@@ -116,16 +130,9 @@ async def test_toolkit_forward_raises_for_unknown_tool():
 
 
 @pytest.mark.asyncio
-async def test_toolkit_forward_raises_without_real_tools(eval_context, app):
-    # A live control plane is required: recording now fails loudly, so a dead
-    # URL would mask the RuntimeError we're actually asserting.
-    client = _make_client(app)
-
-    toolkit = MidojoToolkit.__new__(MidojoToolkit)
-    toolkit._client = client
-    toolkit._real_tools = {}
-    toolkit._tools = []
-
+async def test_toolkit_forward_raises_without_real_tools(eval_context, toolkit):
+    # eval_context provides a live control plane: recording now fails loudly, so
+    # a dead URL would mask the RuntimeError we're actually asserting.
     @toolkit.tool()
     async def my_tool(ctx: ToolContext, x: str) -> str:
         """Test."""
@@ -140,14 +147,8 @@ async def test_toolkit_forward_raises_without_real_tools(eval_context, app):
 
 
 @pytest.mark.asyncio
-async def test_toolkit_records_function_call(eval_context, app):
+async def test_toolkit_records_function_call(eval_context, toolkit):
     cp, run_id, eval_id = eval_context
-    client = _make_client(app)
-
-    toolkit = MidojoToolkit.__new__(MidojoToolkit)
-    toolkit._client = client
-    toolkit._real_tools = {}
-    toolkit._tools = []
 
     @toolkit.tool()
     async def my_tool(ctx: ToolContext, city: str) -> str:
@@ -167,14 +168,8 @@ async def test_toolkit_records_function_call(eval_context, app):
 
 
 @pytest.mark.asyncio
-async def test_toolkit_records_errors(eval_context, app):
+async def test_toolkit_records_errors(eval_context, toolkit):
     cp, run_id, eval_id = eval_context
-    client = _make_client(app)
-
-    toolkit = MidojoToolkit.__new__(MidojoToolkit)
-    toolkit._client = client
-    toolkit._real_tools = {}
-    toolkit._tools = []
 
     @toolkit.tool()
     async def failing_tool(ctx: ToolContext, x: str) -> str:
@@ -195,14 +190,8 @@ async def test_toolkit_records_errors(eval_context, app):
 
 
 @pytest.mark.asyncio
-async def test_toolkit_tool_reads_env(eval_context, app):
+async def test_toolkit_tool_reads_env(eval_context, toolkit):
     cp, run_id, eval_id = eval_context
-    client = _make_client(app)
-
-    toolkit = MidojoToolkit.__new__(MidojoToolkit)
-    toolkit._client = client
-    toolkit._real_tools = {}
-    toolkit._tools = []
 
     @toolkit.tool()
     async def read_env(ctx: ToolContext) -> str:
