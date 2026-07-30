@@ -75,18 +75,16 @@ class ControlPlaneClient:
         result: str,
         error: str | None = None,
     ) -> None:
-        try:
-            await self._http.post(
-                f"{self._base_url}/function-calls",
-                json={
-                    "function": function,
-                    "args": args,
-                    "result": result,
-                    "error": error,
-                },
-            )
-        except httpx.HTTPError:
-            pass
+        resp = await self._http.post(
+            f"{self._base_url}/function-calls",
+            json={
+                "function": function,
+                "args": args,
+                "result": result,
+                "error": error,
+            },
+        )
+        resp.raise_for_status()
 
     def create_tool_context(self, *, forward_fn: ForwardFn | None = None) -> ToolContext:
         return ToolContext(self, forward_fn=forward_fn)

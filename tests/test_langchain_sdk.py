@@ -116,8 +116,15 @@ async def test_toolkit_forward_raises_for_unknown_tool():
 
 
 @pytest.mark.asyncio
-async def test_toolkit_forward_raises_without_real_tools():
-    toolkit = MidojoToolkit(control_plane_url="http://localhost:9999")
+async def test_toolkit_forward_raises_without_real_tools(eval_context, app):
+    # A live control plane is required: recording now fails loudly, so a dead
+    # URL would mask the RuntimeError we're actually asserting.
+    client = _make_client(app)
+
+    toolkit = MidojoToolkit.__new__(MidojoToolkit)
+    toolkit._client = client
+    toolkit._real_tools = {}
+    toolkit._tools = []
 
     @toolkit.tool()
     async def my_tool(ctx: ToolContext, x: str) -> str:
