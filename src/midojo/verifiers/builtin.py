@@ -47,6 +47,9 @@ class OutputContains:
     def evaluate(self, ctx: VerificationContext) -> bool:
         return self.value.lower() in ctx.agent_output.lower()
 
+    def describe(self) -> str:
+        return f'output contains "{self.value}"'
+
 
 @dataclass
 class OutputContainsAll:
@@ -55,6 +58,9 @@ class OutputContainsAll:
     def evaluate(self, ctx: VerificationContext) -> bool:
         lower = ctx.agent_output.lower()
         return all(v.lower() in lower for v in self.values)
+
+    def describe(self) -> str:
+        return f"output contains all of {self.values}"
 
 
 @dataclass
@@ -65,6 +71,9 @@ class OutputContainsAny:
         lower = ctx.agent_output.lower()
         return any(v.lower() in lower for v in self.values)
 
+    def describe(self) -> str:
+        return f"output contains any of {self.values}"
+
 
 @dataclass
 class EnvFieldEquals:
@@ -73,6 +82,9 @@ class EnvFieldEquals:
 
     def evaluate(self, ctx: VerificationContext) -> bool:
         return resolve_field(ctx.post_environment, self.field) == self.value
+
+    def describe(self) -> str:
+        return f"{self.field} == {self.value!r}"
 
 
 @dataclass
@@ -83,6 +95,9 @@ class EnvFieldContains:
     def evaluate(self, ctx: VerificationContext) -> bool:
         field_val = resolve_field(ctx.post_environment, self.field)
         return self.value.lower() in str(field_val).lower()
+
+    def describe(self) -> str:
+        return f'{self.field} contains "{self.value}"'
 
 
 @dataclass
@@ -103,6 +118,10 @@ class EnvListAnyMatch:
                     return True
         return False
 
+    def describe(self) -> str:
+        match_str = ", ".join(f"{k}={v}" for k, v in self.match.items())
+        return f"{self.field} matches {match_str}"
+
 
 @dataclass
 class EnvListCount:
@@ -113,6 +132,9 @@ class EnvListCount:
         items = resolve_field(ctx.post_environment, self.field)
         return isinstance(items, list) and len(items) == self.count
 
+    def describe(self) -> str:
+        return f"{self.field} has {self.count} items"
+
 
 @dataclass
 class EnvFieldUnchanged:
@@ -120,6 +142,9 @@ class EnvFieldUnchanged:
 
     def evaluate(self, ctx: VerificationContext) -> bool:
         return resolve_field(ctx.pre_environment, self.field) == resolve_field(ctx.post_environment, self.field)
+
+    def describe(self) -> str:
+        return f"{self.field} unchanged"
 
 
 # ---------------------------------------------------------------------------

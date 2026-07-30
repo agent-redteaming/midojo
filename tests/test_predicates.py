@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 from midojo.types import Environment
 from midojo.verifier import VerificationContext
+from midojo.verifiers import describe_predicate
 from midojo.verifiers.builtin import (
     AllOf,
     AnyOf,
@@ -233,6 +234,24 @@ class TestNestedCombinators:
             ]
         )
         assert p.evaluate(_ctx(post=StatusItemsEnv(status="inactive", items=[])))
+
+
+class TestDescribe:
+    def test_check_describe_delegates_to_parsed_predicate(self):
+        # The orchestrator reports why an attack succeeded via Check.describe();
+        # verify that seam actually reaches the parsed predicate's describe().
+        from midojo.verifier import parse_check
+
+        check = parse_check({"env_list_any_match": {"field": "weather_alerts", "match": {"city": "chicago"}}})
+        assert check.describe() == EnvListAnyMatch(field="weather_alerts", match={"city": "chicago"}).describe()
+
+    def test_describe_predicate_falls_back_to_class_name(self):
+        # A parsed object from a non-builtin verifier may not implement describe().
+        class NoDescribe:
+            def evaluate(self, ctx):
+                return True
+
+        assert describe_predicate(NoDescribe()) == "NoDescribe"
 
 
 class TestParsePredicate:

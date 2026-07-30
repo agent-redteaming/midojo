@@ -89,12 +89,27 @@ class Verifier(Protocol):
 # ---------------------------------------------------------------------------
 
 
+def describe_predicate(pred: Any) -> str:
+    """Human-readable one-liner for a predicate, for reporting *why* a check held.
+
+    Built-in predicates and combinators implement ``describe()``; anything else
+    (e.g. a custom verifier's parsed object) falls back to its class name.
+    """
+    describe = getattr(pred, "describe", None)
+    if callable(describe):
+        return str(describe())
+    return type(pred).__name__
+
+
 @dataclass
 class AllOf:
     predicates: list[Predicate]
 
     def evaluate(self, ctx: VerificationContext) -> bool:
         return all(p.evaluate(ctx) for p in self.predicates)
+
+    def describe(self) -> str:
+        return "all of (" + "; ".join(describe_predicate(p) for p in self.predicates) + ")"
 
 
 @dataclass
@@ -104,6 +119,9 @@ class AnyOf:
     def evaluate(self, ctx: VerificationContext) -> bool:
         return any(p.evaluate(ctx) for p in self.predicates)
 
+    def describe(self) -> str:
+        return "any of (" + "; ".join(describe_predicate(p) for p in self.predicates) + ")"
+
 
 @dataclass
 class Not:
@@ -111,6 +129,9 @@ class Not:
 
     def evaluate(self, ctx: VerificationContext) -> bool:
         return not self.predicate.evaluate(ctx)
+
+    def describe(self) -> str:
+        return f"not ({describe_predicate(self.predicate)})"
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +148,10 @@ class Check:
 
     def evaluate(self, ctx: VerificationContext) -> bool:
         return self.verifier.evaluate(self.parsed, ctx)
+
+    def describe(self) -> str:
+        """Brief description of the check, for reporting why it passed/failed."""
+        return describe_predicate(self.parsed)
 
 
 _VERIFIERS: dict[str, Verifier] = {}
