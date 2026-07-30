@@ -22,7 +22,13 @@ COPY . /app
 
 # Install midojo plus the suites' agent dependencies (openai, ogx, ...) and the
 # LangChain agent + its native LangGraph Agent Server (`langgraph dev`).
-RUN pip install --no-cache-dir ".[suites,langchain]" \
+#
+# Use uv, not plain `pip install`: pip's resolver backtracks for many minutes
+# on the a2a-sdk -> google-api-core transitive tree, whereas uv resolves it in
+# seconds. uv installs into UBI's active virtualenv (/opt/app-root, via
+# $VIRTUAL_ENV), so the console scripts land on PATH.
+RUN pip install --no-cache-dir uv \
+    && uv pip install --no-cache ".[suites,langchain]" \
     # Make the tree arbitrary-UID friendly (OpenShift restricted SCC runs the
     # container as a random non-root UID with GID 0).
     && chgrp -R 0 /app && chmod -R g=u /app
