@@ -4,7 +4,13 @@
 
 MiDojo (mid-dojo) lets you red-team your agent by putting a controlled environment and fake tools *in the middle* between the agent and the real world. The environment carries injection payloads spliced into otherwise-normal data — the agent encounters attacks as a side effect of doing legitimate work, the way real prompt injections land. Fake tools read from this environment (delivering the injection) and write back to it (capturing malicious actions), optionally forwarding to real tools for authentic data. MiDojo then grades **utility** (did the agent complete its task?) and **security** (did it resist the injection?). Inspired by [AgentDojo](https://github.com/ethz-spylab/agentdojo).
 
-![MiDojo architecture](docs/midojo-diagram.svg)
+*System architecture — orchestrator, interception layer, control plane, and injection channels:*
+
+![Architecture](docs/architecture.svg)
+
+*How injections flow through environment and tools:*
+
+![Injection flow](docs/midojo-diagram.svg)
 
 ## What can you test?
 
