@@ -1,7 +1,9 @@
 """Process-local application state.
 
-Persistence is in-memory only (lost on restart). A db store may replace
-this layer later.
+Run/evaluation state lives behind the :class:`~midojo.app.store.Store` seam
+(see ``store.py``); this module holds only the process-global handles wired up
+at startup — the loaded ``suite`` and the active ``store``. The default store is
+in-memory (lost on restart); a db-backed store may replace it later.
 """
 
 from __future__ import annotations
@@ -9,12 +11,15 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from midojo.types import Environment, FunctionCallRecord
 from midojo.yaml_task_suite import YAMLTaskSuite
+
+if TYPE_CHECKING:
+    from .store import Store
 
 
 def _new_id() -> str:
@@ -55,9 +60,10 @@ class Run(BaseModel):
 
 
 # --- Module-level state ---
+#
+# Set by create_app() at startup. `store` is the seam through which all
+# run/evaluation state is accessed; routers reach it via the get_store
+# dependency rather than touching this module directly.
 
 suite: YAMLTaskSuite = None  # type: ignore[assignment]
-runs: dict[str, Run] = {}
-# Only one eval is active at a time — the orchestrator runs tasks sequentially.
-# Concurrent evals would clobber this; use explicit /runs/{id}/evaluations/{id}/* routes instead.
-current_eval: Evaluation | None = None
+store: Store = None  # type: ignore[assignment]

@@ -1,6 +1,14 @@
 from fastapi.testclient import TestClient
 
 from midojo.app import state
+from midojo.app.state import Evaluation
+
+
+def _current_eval() -> Evaluation:
+    """The store's active eval, for asserting internal (non-API) server state."""
+    evaluation = state.store.get_current_evaluation()
+    assert evaluation is not None
+    return evaluation
 
 
 def _create_run(client: TestClient) -> str:
@@ -119,7 +127,7 @@ def test_record_function_call_via_post(client):
     assert len(resp.json()) == 1
 
     # ...but they are still captured server-side for grading.
-    recorded = state.current_eval.function_calls[0]
+    recorded = _current_eval().function_calls[0]
     assert recorded.pre_environment is not None
     assert recorded.post_environment is not None
 
@@ -151,7 +159,7 @@ def test_record_function_call_pre_env_chain(client):
         json={"function": "send_weather_alert", "args": {"city": "New York", "message": "Storm warning"}, "result": "ok"},
     )
 
-    calls = state.current_eval.function_calls
+    calls = _current_eval().function_calls
     assert calls[0].pre_environment.model_dump() == initial_env
     assert calls[1].pre_environment == calls[0].post_environment
     assert calls[1].post_environment.model_dump()["weather_alerts"] == [{"city": "New York", "message": "Storm warning"}]
@@ -279,7 +287,7 @@ def test_record_and_get_observations(client):
     assert resp.status_code == 200
 
     assert client.get(f"/runs/{run_id}/evaluations/{eval_id}/observations").json() == {"openshell": events}
-    assert state.current_eval.observations == {"openshell": events}
+    assert _current_eval().observations == {"openshell": events}
 
 
 def test_current_observations_keyed_by_source(client):

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -8,8 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from midojo.types import FunctionCallRecord
 from midojo.yaml_task_suite import YAMLTaskSuite
 
-from .. import state
-from ..dependencies import get_current_evaluation, get_evaluation_by_id, get_run, get_suite
+from ..dependencies import (
+    get_current_evaluation,
+    get_evaluation_by_id,
+    get_run,
+    get_store,
+    get_suite,
+)
 from ..models import (
     CompleteRequest,
     CreateEvaluationRequest,
@@ -23,20 +27,20 @@ from ..models import (
     RecordObservationsRequest,
     RunResponse,
 )
-from ..state import Evaluation, Run, _new_id
+from ..state import Evaluation, Run
+from ..store import Store
 
 router = APIRouter(prefix="/runs")
 
-# Mirrors of the per-eval environment + function-call endpoints that resolve
-# the active eval from state. Used by long-lived MCP servers / PI extensions
-# that don't have a run/eval ID at construction time. See dependencies.get_current_eval.
+# Mirrors of the per-eval environment + function-call endpoints that resolve the
+# active eval from the store. Used by long-lived MCP servers / PI extensions that
+# don't have a run/eval ID at construction time. See dependencies.get_current_evaluation.
 current_router = APIRouter(prefix="/current")
 
 
 @router.post("", response_model=CreateRunResponse, status_code=status.HTTP_201_CREATED)
-def create_run():
-    run = Run(id=_new_id())
-    state.runs[run.id] = run
+def create_run(store: Annotated[Store, Depends(get_store)]):
+    run = store.create_run()
     return CreateRunResponse(id=run.id)
 
 
@@ -64,6 +68,7 @@ def create_evaluation(
     req: CreateEvaluationRequest,
     run: Annotated[Run, Depends(get_run)],
     suite: Annotated[YAMLTaskSuite, Depends(get_suite)],
+    store: Annotated[Store, Depends(get_store)],
 ):
     if req.user_task_id not in suite.user_tasks:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown user task: {req.user_task_id}")
@@ -74,20 +79,17 @@ def create_evaluation(
 
     environment = suite.provision_environment(req.injections)
     pre_environment = environment.model_copy(deep=True)
+    prompt = suite.inject_user_task_prompt(req.user_task_id, req.injections)
 
-    evaluation = Evaluation(
-        id=_new_id(),
+    evaluation = store.create_evaluation(
+        run.id,
         user_task_id=req.user_task_id,
         injection_task_id=req.injection_task_id,
         pre_environment=pre_environment,
         environment=environment,
         active_injections=req.injections,
+        agent_input=prompt,
     )
-    run.evaluations[evaluation.id] = evaluation
-    state.current_eval = evaluation
-
-    prompt = suite.inject_user_task_prompt(req.user_task_id, req.injections)
-    evaluation.agent_input = prompt
     return CreateEvaluationResponse(id=evaluation.id, prompt=prompt)
 
 
@@ -111,9 +113,12 @@ def retrieve_evaluation(evaluation: Annotated[Evaluation, Depends(get_evaluation
 
 
 @router.post("/{run_id}/evaluations/{eval_id}/complete", status_code=status.HTTP_200_OK)
-def complete_evaluation(req: CompleteRequest, evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]):
-    evaluation.agent_output = req.agent_output
-    evaluation.completed = True
+def complete_evaluation(
+    req: CompleteRequest,
+    evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)],
+    store: Annotated[Store, Depends(get_store)],
+):
+    store.complete_evaluation(evaluation, req.agent_output)
     return {"status": "completed"}
 
 
@@ -121,6 +126,7 @@ def complete_evaluation(req: CompleteRequest, evaluation: Annotated[Evaluation, 
 def grade_evaluation(
     evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)],
     suite: Annotated[YAMLTaskSuite, Depends(get_suite)],
+    store: Annotated[Store, Depends(get_store)],
 ):
     if not evaluation.completed:
         raise HTTPException(
@@ -136,8 +142,7 @@ def grade_evaluation(
         function_calls=evaluation.function_calls,
         observations=evaluation.observations,
     )
-    evaluation.utility = result["utility"]
-    evaluation.security = result["security"]
+    store.set_grade(evaluation, utility=result["utility"], security=result["security"])
     return GradeResponse(**result)
 
 
@@ -159,15 +164,23 @@ def register_environment_update_route(env_type: type) -> None:
     on the handler to give FastAPI the right body type.
     """
 
-    def update_environment(body, evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]) -> dict:
-        evaluation.environment = body
+    def update_environment(
+        body,
+        evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)],
+        store: Annotated[Store, Depends(get_store)],
+    ) -> dict:
+        store.set_environment(evaluation, body)
         return evaluation.environment.model_dump()
 
     update_environment.__annotations__["body"] = env_type
     router.add_api_route("/{run_id}/evaluations/{eval_id}/environment", update_environment, methods=["PUT"])
 
-    def update_current_environment(body, evaluation: Annotated[Evaluation, Depends(get_current_evaluation)]) -> dict:
-        evaluation.environment = body
+    def update_current_environment(
+        body,
+        evaluation: Annotated[Evaluation, Depends(get_current_evaluation)],
+        store: Annotated[Store, Depends(get_store)],
+    ) -> dict:
+        store.set_environment(evaluation, body)
         return evaluation.environment.model_dump()
 
     update_current_environment.__annotations__["body"] = env_type
@@ -197,21 +210,6 @@ def get_function_call(idx: int, evaluation: Annotated[Evaluation, Depends(get_ev
     return evaluation.function_calls[idx]
 
 
-def _append_function_call(req: CreateFunctionCallRecord, evaluation: Evaluation) -> FunctionCallRecord:
-    if evaluation.function_calls:
-        pre_env = evaluation.function_calls[-1].post_environment
-    else:
-        pre_env = evaluation.pre_environment
-    record = FunctionCallRecord(
-        **req.model_dump(),
-        timestamp=datetime.now(UTC).isoformat(),
-        pre_environment=pre_env,
-        post_environment=evaluation.environment.model_copy(deep=True),
-    )
-    evaluation.function_calls.append(record)
-    return record
-
-
 @router.post(
     "/{run_id}/evaluations/{eval_id}/function-calls",
     response_model=FunctionCallResponse,
@@ -220,8 +218,9 @@ def _append_function_call(req: CreateFunctionCallRecord, evaluation: Evaluation)
 def record_function_call(
     req: CreateFunctionCallRecord,
     evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)],
+    store: Annotated[Store, Depends(get_store)],
 ) -> FunctionCallRecord:
-    return _append_function_call(req, evaluation)
+    return store.append_function_call(evaluation, req)
 
 
 # --- Observation endpoints ---
@@ -229,11 +228,6 @@ def record_function_call(
 # Runtime evidence streams (e.g. OpenShell OCSF events) the runner reads from a
 # source and records here, keyed by source — symmetric with PUT /environment.
 # Verifiers read them from VerificationContext.observations at grade time.
-
-
-def _record_observations(req: RecordObservationsRequest, evaluation: Evaluation) -> dict:
-    evaluation.observations[req.source] = req.data
-    return evaluation.observations
 
 
 @router.get("/{run_id}/evaluations/{eval_id}/observations", status_code=status.HTTP_200_OK)
@@ -245,8 +239,9 @@ def get_observations(evaluation: Annotated[Evaluation, Depends(get_evaluation_by
 def record_observations(
     req: RecordObservationsRequest,
     evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)],
+    store: Annotated[Store, Depends(get_store)],
 ) -> dict:
-    return _record_observations(req, evaluation)
+    return store.record_observations(evaluation, req.source, req.data)
 
 
 # --- /current mirrors ---
@@ -289,8 +284,9 @@ def get_current_function_call(
 def record_current_function_call(
     req: CreateFunctionCallRecord,
     evaluation: Annotated[Evaluation, Depends(get_current_evaluation)],
+    store: Annotated[Store, Depends(get_store)],
 ) -> FunctionCallRecord:
-    return _append_function_call(req, evaluation)
+    return store.append_function_call(evaluation, req)
 
 
 @current_router.get("/observations", status_code=status.HTTP_200_OK)
@@ -302,5 +298,6 @@ def get_current_observations(evaluation: Annotated[Evaluation, Depends(get_curre
 def record_current_observations(
     req: RecordObservationsRequest,
     evaluation: Annotated[Evaluation, Depends(get_current_evaluation)],
+    store: Annotated[Store, Depends(get_store)],
 ) -> dict:
-    return _record_observations(req, evaluation)
+    return store.record_observations(evaluation, req.source, req.data)

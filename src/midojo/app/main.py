@@ -6,12 +6,12 @@ from midojo.yaml_task_suite import YAMLTaskSuite
 
 from . import state
 from .routers import runs, suite, tasks, tools
+from .store import InMemoryStore
 
 
 def create_app(suite_instance: YAMLTaskSuite) -> FastAPI:
     state.suite = suite_instance
-    state.runs = {}
-    state.current_eval = None
+    state.store = InMemoryStore()
 
     app = FastAPI()
     app.include_router(suite.router)
