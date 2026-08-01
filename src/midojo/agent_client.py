@@ -14,6 +14,16 @@ class AgentClient(abc.ABC):
         """Send a task prompt to the agent and return its final text output."""
         ...
 
+    async def send_message(self, message: str, previous_response_id: str | None = None) -> tuple[str, str | None]:
+        """Send a message in a multi-turn conversation.
+
+        Returns (output_text, response_id) where response_id can be passed
+        to the next call to maintain conversation state. Default implementation
+        falls back to send_task (no conversation state).
+        """
+        output = await self.send_task(message)
+        return output, None
+
 
 class SimpleHTTPAgentClient(AgentClient):
     """Sends a prompt via HTTP POST and returns the response text.
@@ -190,6 +200,32 @@ class OGXResponsesClient(AgentClient):
 
         response = client.responses.create(**kwargs)
         return response.output_text
+
+    async def send_message(self, message: str, previous_response_id: str | None = None) -> tuple[str, str | None]:
+        from ogx_client import OgxClient
+
+        client = OgxClient(base_url=self.ogx_url, timeout=self.timeout)
+        kwargs: dict = dict(
+            model=self.model,
+            input=message,
+            instructions=self.instructions,
+            tools=[
+                {
+                    "type": "mcp",
+                    "server_label": self.mcp_server_label,
+                    "server_url": self.mcp_server_url,
+                    "require_approval": "never",
+                },
+            ],
+            stream=False,
+        )
+        if previous_response_id:
+            kwargs["previous_response_id"] = previous_response_id
+        if self.shield_id:
+            kwargs["guardrails"] = [self.shield_id]
+
+        response = client.responses.create(**kwargs)
+        return response.output_text, response.id
 
 
 class PIAgentClient(AgentClient):

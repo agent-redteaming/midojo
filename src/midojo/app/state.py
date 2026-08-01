@@ -13,7 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from midojo.types import Environment, FunctionCallRecord
+from midojo.types import Environment, FunctionCallRecord, InterAgentMessage, MemoryEntry, OutputHook, ToolModification
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 
@@ -42,6 +42,10 @@ class Evaluation:
     completed: bool = False
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     active_injections: dict[str, str] = field(default_factory=dict)
+    tool_modifications: list[ToolModification] = field(default_factory=list)
+    output_hooks: list[OutputHook] = field(default_factory=list)
+    memory_entries: list[MemoryEntry] = field(default_factory=list)
+    inter_agent_messages: list[InterAgentMessage] = field(default_factory=list)
     utility: bool | None = None
     security: bool | None = None
 

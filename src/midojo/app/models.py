@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from midojo.types import Environment
+from midojo.types import Environment, InterAgentMessage, MemoryEntry, OutputHook, ToolModification
 
 # --- Run / Evaluation request/response models ---
 
@@ -35,6 +35,10 @@ class CreateEvaluationRequest(BaseModel):
     user_task_id: str
     injection_task_id: str | None = None
     injections: dict[str, str] = {}
+    tool_modifications: list[ToolModification] = []
+    output_hooks: list[OutputHook] = []
+    memory_entries: list[MemoryEntry] = []
+    inter_agent_messages: list[InterAgentMessage] = []
 
 
 class CreateRunResponse(BaseModel):

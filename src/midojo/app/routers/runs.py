@@ -82,6 +82,10 @@ def create_evaluation(
         pre_environment=pre_environment,
         environment=environment,
         active_injections=req.injections,
+        tool_modifications=req.tool_modifications,
+        output_hooks=req.output_hooks,
+        memory_entries=req.memory_entries,
+        inter_agent_messages=req.inter_agent_messages,
     )
     run.evaluations[evaluation.id] = evaluation
     state.current_eval = evaluation
@@ -250,6 +254,28 @@ def record_observations(
 
 
 # --- /current mirrors ---
+
+
+@current_router.get("/tool-overrides", status_code=status.HTTP_200_OK)
+def get_current_tool_overrides(evaluation: Annotated[Evaluation, Depends(get_current_evaluation)]) -> list[dict]:
+    return [m.model_dump() for m in evaluation.tool_modifications]
+
+
+@current_router.get("/output-hooks", status_code=status.HTTP_200_OK)
+def get_current_output_hooks(evaluation: Annotated[Evaluation, Depends(get_current_evaluation)]) -> list[dict]:
+    return [h.model_dump() for h in evaluation.output_hooks]
+
+
+@current_router.get("/memory-entries", status_code=status.HTTP_200_OK)
+def get_current_memory_entries(evaluation: Annotated[Evaluation, Depends(get_current_evaluation)]) -> list[dict]:
+    return [e.model_dump() for e in evaluation.memory_entries]
+
+
+@current_router.get("/inter-agent-messages", status_code=status.HTTP_200_OK)
+def get_current_inter_agent_messages(
+    evaluation: Annotated[Evaluation, Depends(get_current_evaluation)],
+) -> list[dict]:
+    return [m.model_dump() for m in evaluation.inter_agent_messages]
 
 
 @current_router.get("/environment", status_code=status.HTTP_200_OK)
