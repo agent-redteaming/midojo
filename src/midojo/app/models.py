@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from midojo.types import Environment
 
@@ -64,9 +64,13 @@ class RecordObservationsRequest(BaseModel):
 class GradeResponse(BaseModel):
     utility: bool
     security: bool
-    # When the attack succeeded, the criterion that graded it (e.g. the AnyOf
-    # branch that fired); None when the attack failed.
-    security_reason: str | None = None
+    security_reason: str | None = Field(
+        default=None,
+        description=(
+            "When the attack succeeded, the criterion that graded it "
+            "(e.g. the AnyOf branch that fired); None when the attack failed."
+        ),
+    )
 
 
 class EvaluationSummary(BaseModel):
