@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+import pytest
+
 from midojo.app.models import CreateFunctionCallRecord
 from midojo.app.store import InMemoryStore
 from midojo.types import Environment
+
+
+@pytest.fixture
+def store() -> InMemoryStore:
+    return InMemoryStore()
 
 
 class _Env(Environment):
@@ -37,8 +44,7 @@ def _make_eval(
 # --- runs ---
 
 
-def test_create_run_round_trip():
-    store = InMemoryStore()
+def test_create_run_round_trip(store):
     r1 = store.create_run()
     r2 = store.create_run()
     # Each run is retrievable by its own id: two creates coexist without clobbering
@@ -47,14 +53,12 @@ def test_create_run_round_trip():
     assert store.get_run(r2.id) is r2
 
 
-def test_get_run_unknown_returns_none():
+def test_get_run_unknown_returns_none(store):
     # None (not a raise) is the contract the dependency layer turns into a 404.
-    store = InMemoryStore()
     assert store.get_run("nope") is None
 
 
-def test_list_runs():
-    store = InMemoryStore()
+def test_list_runs(store):
     assert store.list_runs() == []
     r1 = store.create_run()
     r2 = store.create_run()
@@ -64,8 +68,7 @@ def test_list_runs():
 # --- evaluations ---
 
 
-def test_create_evaluation_stored_under_run_and_current():
-    store = InMemoryStore()
+def test_create_evaluation_stored_under_run_and_current(store):
     run = store.create_run()
     ev = _make_eval(store, run.id, agent_input="prompt")
     assert ev.run_id == run.id
@@ -74,22 +77,19 @@ def test_create_evaluation_stored_under_run_and_current():
     assert ev.agent_input == "prompt"  # kwarg is plumbed through to the Evaluation
 
 
-def test_get_evaluation_unknown_returns_none():
-    store = InMemoryStore()
+def test_get_evaluation_unknown_returns_none(store):
     run = store.create_run()
     # Two distinct not-found branches: known run/unknown eval, and unknown run.
     assert store.get_evaluation(run.id, "nope") is None
     assert store.get_evaluation("nope", "nope") is None
 
 
-def test_get_current_evaluation_none_before_any():
+def test_get_current_evaluation_none_before_any(store):
     # Backs the "No evaluation in progress" 400 before anything is created.
-    store = InMemoryStore()
     assert store.get_current_evaluation() is None
 
 
-def test_current_evaluation_follows_latest():
-    store = InMemoryStore()
+def test_current_evaluation_follows_latest(store):
     run = store.create_run()
     _make_eval(store, run.id)
     ev2 = _make_eval(store, run.id)
@@ -100,8 +100,7 @@ def test_current_evaluation_follows_latest():
 # --- function calls ---
 
 
-def test_append_function_call_first_call_chains_from_pre_environment():
-    store = InMemoryStore()
+def test_append_function_call_first_call_chains_from_pre_environment(store):
     run = store.create_run()
     # pre_environment and the live environment differ so the assertion can tell
     # which one the first call's pre-env is taken from.
@@ -115,8 +114,7 @@ def test_append_function_call_first_call_chains_from_pre_environment():
     assert ev.function_calls == [rec]
 
 
-def test_append_function_call_chains_pre_env_across_environment_change():
-    store = InMemoryStore()
+def test_append_function_call_chains_pre_env_across_environment_change(store):
     run = store.create_run()
     ev = _make_eval(store, run.id, environment=_Env(counter=0))
     store.append_function_call(run.id, ev.id, _fc("a", "r0"))
@@ -130,8 +128,7 @@ def test_append_function_call_chains_pre_env_across_environment_change():
     assert r1.post_environment.counter == 1
 
 
-def test_append_function_call_post_env_is_deep_copy():
-    store = InMemoryStore()
+def test_append_function_call_post_env_is_deep_copy(store):
     run = store.create_run()
     env = _Env(counter=0)
     ev = _make_eval(store, run.id, environment=env)
@@ -146,8 +143,7 @@ def test_append_function_call_post_env_is_deep_copy():
 # --- environment / observations / grade / complete ---
 
 
-def test_set_environment_replaces():
-    store = InMemoryStore()
+def test_set_environment_replaces(store):
     run = store.create_run()
     ev = _make_eval(store, run.id, environment=_Env(counter=1))
     new_env = _Env(counter=2)
@@ -156,8 +152,7 @@ def test_set_environment_replaces():
     assert ev.environment is new_env
 
 
-def test_record_observations_keyed_by_source():
-    store = InMemoryStore()
+def test_record_observations_keyed_by_source(store):
     run = store.create_run()
     ev = _make_eval(store, run.id)
     assert store.record_observations(run.id, ev.id, "openshell", ["e1"]) is ev
@@ -169,8 +164,7 @@ def test_record_observations_keyed_by_source():
     assert ev.observations == {"openshell": ["e2"], "acs": {"x": 1}}
 
 
-def test_set_grade():
-    store = InMemoryStore()
+def test_set_grade(store):
     run = store.create_run()
     ev = _make_eval(store, run.id)
     # Distinct values guard against the two flags being swapped.
@@ -179,8 +173,7 @@ def test_set_grade():
     assert ev.security is False
 
 
-def test_complete_evaluation():
-    store = InMemoryStore()
+def test_complete_evaluation(store):
     run = store.create_run()
     ev = _make_eval(store, run.id)
     assert store.complete_evaluation(run.id, ev.id, "final answer") is ev
