@@ -32,7 +32,7 @@ ACS consume.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, cast, runtime_checkable
 
 from midojo.types import Environment, FunctionCallRecord
 
@@ -57,9 +57,31 @@ class VerificationContext:
     observations: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class VerificationResult:
+    """Result of one grading traversal: the verdict *and* the reason for it.
+
+    ``reason`` names only the criterion that determined ``passed`` — for an
+    :class:`AnyOf` it is the single branch that fired, for an :class:`AllOf` the
+    conjunction, for a leaf its own criterion. Because it is produced in the same
+    pass that decides ``passed``, the human explanation can never disagree with
+    the boolean, and expensive/one-shot verifiers evaluate exactly once (no
+    separate "explain" re-evaluation).
+    """
+
+    passed: bool
+    reason: str
+
+
 @runtime_checkable
 class Predicate(Protocol):
-    """A grading check that can evaluate itself against a verification context."""
+    """A grading check that assesses itself against a verification context.
+
+    ``assess`` is the single traversal that yields both the verdict and its
+    reason; ``evaluate`` is the boolean shorthand for ``assess(ctx).passed``.
+    """
+
+    def assess(self, ctx: VerificationContext) -> VerificationResult: ...
 
     def evaluate(self, ctx: VerificationContext) -> bool: ...
 
@@ -67,6 +89,13 @@ class Predicate(Protocol):
 @runtime_checkable
 class Verifier(Protocol):
     """Parses a check spec at load time and evaluates it at grade time.
+
+    A verifier must implement ``parse`` and ``evaluate``. It *may* also implement
+    ``assess(check, ctx) -> VerificationResult`` to return, in the same single pass, both the
+    verdict and a human-readable reason. When it does not, :class:`Check` falls
+    back to ``evaluate`` and labels the outcome with the verifier's ``name`` — so
+    grading still runs the check exactly once, which matters for stateful or
+    one-shot verifiers.
 
     A verifier may optionally expose ``claims`` — the set of top-level keys it
     owns when it acts as the *default* verifier (used by the registry to reject
@@ -93,24 +122,46 @@ class Verifier(Protocol):
 class AllOf:
     predicates: list[Predicate]
 
+    def assess(self, ctx: VerificationContext) -> VerificationResult:
+        reasons: list[str] = []
+        for p in self.predicates:
+            r = p.assess(ctx)
+            if not r.passed:
+                return VerificationResult(False, r.reason)  # first failing conjunct — same short-circuit as all()
+            reasons.append(r.reason)
+        return VerificationResult(True, "all of (" + "; ".join(reasons) + ")")
+
     def evaluate(self, ctx: VerificationContext) -> bool:
-        return all(p.evaluate(ctx) for p in self.predicates)
+        return self.assess(ctx).passed
 
 
 @dataclass
 class AnyOf:
     predicates: list[Predicate]
 
+    def assess(self, ctx: VerificationContext) -> VerificationResult:
+        reasons: list[str] = []
+        for p in self.predicates:
+            r = p.assess(ctx)
+            if r.passed:
+                return VerificationResult(True, r.reason)  # only the branch that fired — same short-circuit as any()
+            reasons.append(r.reason)
+        return VerificationResult(False, "any of (" + "; ".join(reasons) + ")")
+
     def evaluate(self, ctx: VerificationContext) -> bool:
-        return any(p.evaluate(ctx) for p in self.predicates)
+        return self.assess(ctx).passed
 
 
 @dataclass
 class Not:
     predicate: Predicate
 
+    def assess(self, ctx: VerificationContext) -> VerificationResult:
+        r = self.predicate.assess(ctx)
+        return VerificationResult(not r.passed, f"not ({r.reason})")
+
     def evaluate(self, ctx: VerificationContext) -> bool:
-        return not self.predicate.evaluate(ctx)
+        return self.assess(ctx).passed
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +175,18 @@ class Check:
 
     verifier: Verifier
     parsed: Any
+
+    def assess(self, ctx: VerificationContext) -> VerificationResult:
+        """Evaluate once, returning the verdict and its reason.
+
+        Prefers the verifier's ``assess`` (rich, per-branch reason). A verifier
+        that only implements ``evaluate`` is still run exactly once and labelled
+        with its ``name``.
+        """
+        verifier_assess = getattr(self.verifier, "assess", None)
+        if callable(verifier_assess):
+            return cast(VerificationResult, verifier_assess(self.parsed, ctx))
+        return VerificationResult(self.verifier.evaluate(self.parsed, ctx), self.verifier.name)
 
     def evaluate(self, ctx: VerificationContext) -> bool:
         return self.verifier.evaluate(self.parsed, ctx)

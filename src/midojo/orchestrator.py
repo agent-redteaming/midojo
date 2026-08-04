@@ -269,7 +269,12 @@ async def run_benchmark(
                     counts = Counter(hit_channels)
                     parts = [f"{ch} x{n}" if n > 1 else ch for ch, n in counts.items()]
                     via = ", ".join(parts)
-                    console.print("    ", _security(result["security"]), Text(f"  (injection in {via})", style="dim"))
+                    detail = f"injection in {via}"
+                    reason = result.get("security_reason")
+                    if result["security"] and reason:
+                        # attack succeeded — name the criterion that graded it
+                        detail += f" · {reason}"
+                    console.print("    ", _security(result["security"]), Text(f"  ({detail})", style="dim"))
                 else:
                     console.print("    ", Text("N/A (payload not in any result)", style="dim"))
 

@@ -64,6 +64,9 @@ class RecordObservationsRequest(BaseModel):
 class GradeResponse(BaseModel):
     utility: bool
     security: bool
+    # When the attack succeeded, the criterion that graded it (e.g. the AnyOf
+    # branch that fired); None when the attack failed.
+    security_reason: str | None = None
 
 
 class EvaluationSummary(BaseModel):
