@@ -156,13 +156,19 @@ def test_record_function_call_pre_env_chain(client):
 
     client.post(
         f"/runs/{run_id}/evaluations/{eval_id}/function-calls",
-        json={"function": "send_weather_alert", "args": {"city": "New York", "message": "Storm warning"}, "result": "ok"},
+        json={
+            "function": "send_weather_alert",
+            "args": {"city": "New York", "message": "Storm warning"},
+            "result": "ok",
+        },
     )
 
     calls = _current_eval().function_calls
     assert calls[0].pre_environment.model_dump() == initial_env
     assert calls[1].pre_environment == calls[0].post_environment
-    assert calls[1].post_environment.model_dump()["weather_alerts"] == [{"city": "New York", "message": "Storm warning"}]
+    assert calls[1].post_environment.model_dump()["weather_alerts"] == [
+        {"city": "New York", "message": "Storm warning"}
+    ]
 
 
 # --- /current/* endpoints ---
@@ -192,6 +198,8 @@ def test_current_environment_put(client):
     env["weather_alerts"] = [{"city": "Boston", "message": "blizzard"}]
     resp = client.put("/current/environment", json=env)
     assert resp.status_code == 200
+    # The PUT's own body is built from the mutated Evaluation, not re-fetched.
+    assert resp.json()["weather_alerts"] == [{"city": "Boston", "message": "blizzard"}]
 
     fresh = client.get(f"/runs/{run_id}/evaluations/{eval_id}/environment").json()
     assert fresh["weather_alerts"] == [{"city": "Boston", "message": "blizzard"}]
@@ -285,6 +293,8 @@ def test_record_and_get_observations(client):
         json={"source": "openshell", "data": events},
     )
     assert resp.status_code == 200
+    # The POST's own body is built from the mutated Evaluation, not re-fetched.
+    assert resp.json() == {"openshell": events}
 
     assert client.get(f"/runs/{run_id}/evaluations/{eval_id}/observations").json() == {"openshell": events}
     assert _current_eval().observations == {"openshell": events}
@@ -301,3 +311,50 @@ def test_current_observations_keyed_by_source(client):
         "openshell": ["PROC:LAUNCH curl"],
         "acs": {"processes": ["curl"]},
     }
+
+
+# --- 404s on the nested mutation routes ---
+#
+# The mutation routes depend on get_run (validates the run) and turn a None store
+# return into a 404 via _require_eval. These exercise both not-found branches --
+# unknown eval under a known run, and unknown run -- across every mutation route,
+# so a miswired handler (missing _require_eval, wrong status/detail) is caught.
+
+
+def _mutation_requests(client: TestClient, run_id: str, eval_id: str, env: dict) -> dict:
+    return {
+        "complete": lambda: client.post(f"/runs/{run_id}/evaluations/{eval_id}/complete", json={"agent_output": "x"}),
+        "function-calls": lambda: client.post(
+            f"/runs/{run_id}/evaluations/{eval_id}/function-calls",
+            json={"function": "f", "args": {}, "result": "r"},
+        ),
+        "observations": lambda: client.post(
+            f"/runs/{run_id}/evaluations/{eval_id}/observations",
+            json={"source": "s", "data": []},
+        ),
+        "environment": lambda: client.put(f"/runs/{run_id}/evaluations/{eval_id}/environment", json=env),
+    }
+
+
+def test_nested_mutation_routes_unknown_eval_404(client):
+    """Known run + unknown eval -> 404 'Unknown evaluation' from _require_eval on every mutation route."""
+    run_id = _create_run(client)
+    _create_evaluation(client, run_id)  # a real eval, so a valid env body is available for the PUT
+    env = client.get("/current/environment").json()
+
+    for name, send in _mutation_requests(client, run_id, "BOGUS", env).items():
+        resp = send()
+        assert resp.status_code == 404, name
+        assert resp.json()["detail"] == "Unknown evaluation: BOGUS", name
+
+
+def test_nested_mutation_routes_unknown_run_404(client):
+    """Unknown run -> 404 'Unknown run' from get_run, before the eval check runs."""
+    run_id = _create_run(client)
+    _create_evaluation(client, run_id)
+    env = client.get("/current/environment").json()
+
+    for name, send in _mutation_requests(client, "BOGUS", "E", env).items():
+        resp = send()
+        assert resp.status_code == 404, name
+        assert resp.json()["detail"] == "Unknown run: BOGUS", name

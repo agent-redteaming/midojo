@@ -42,3 +42,15 @@ def get_current_evaluation(store: Annotated[Store, Depends(get_store)]) -> Evalu
     if evaluation is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No evaluation in progress.")
     return evaluation
+
+
+def get_current_ids(store: Annotated[Store, Depends(get_store)]) -> tuple[str, str]:
+    """(run_id, eval_id) of the active eval, for ID-based mutations on /current.
+
+    Resolves the pointer without fetching the evaluation, so the store does the
+    single lookup during the mutation itself.
+    """
+    ids = store.get_current_ids()
+    if ids is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No evaluation in progress.")
+    return ids

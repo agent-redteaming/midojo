@@ -20,4 +20,3 @@ def suite_info(suite: Annotated[YAMLTaskSuite, Depends(get_suite)]):
         tools=suite.get_tool_names(),
         environment=suite.provision_environment({}),
     )
-

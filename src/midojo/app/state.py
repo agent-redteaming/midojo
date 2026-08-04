@@ -34,6 +34,7 @@ class Evaluation:
     """A single task execution within a Run. Captures the environment before and after tool execution, the function call trace, and grading results."""
 
     id: str
+    run_id: str
     user_task_id: str
     injection_task_id: str | None
     pre_environment: Environment

@@ -44,5 +44,3 @@ def get_injection_task(task_id: str, suite: Annotated[YAMLTaskSuite, Depends(get
         type="injection",
         description=task.description,
     )
-
-

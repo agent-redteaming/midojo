@@ -68,6 +68,7 @@ def test_create_evaluation_stored_under_run_and_current():
     store = InMemoryStore()
     run = store.create_run()
     ev = _make_eval(store, run.id, agent_input="prompt")
+    assert ev.run_id == run.id
     assert store.get_evaluation(run.id, ev.id) is ev
     assert store.get_current_evaluation() is ev
     assert ev.agent_input == "prompt"  # kwarg is plumbed through to the Evaluation
@@ -105,7 +106,8 @@ def test_append_function_call_first_call_chains_from_pre_environment():
     # pre_environment and the live environment differ so the assertion can tell
     # which one the first call's pre-env is taken from.
     ev = _make_eval(store, run.id, pre_environment=_Env(counter=7), environment=_Env(counter=9))
-    rec = store.append_function_call(ev, _fc("a", "r0"))
+    assert store.append_function_call(run.id, ev.id, _fc("a", "r0")) is ev  # returns the mutated eval
+    rec = ev.function_calls[-1]
     assert isinstance(rec.pre_environment, _Env)
     assert rec.pre_environment.counter == 7  # first call chains from pre_environment, not the live env
     assert isinstance(rec.post_environment, _Env)
@@ -117,15 +119,15 @@ def test_append_function_call_chains_pre_env_across_environment_change():
     store = InMemoryStore()
     run = store.create_run()
     ev = _make_eval(store, run.id, environment=_Env(counter=0))
-    r0 = store.append_function_call(ev, _fc("a", "r0"))
-    store.set_environment(ev, _Env(counter=1))
-    r1 = store.append_function_call(ev, _fc("b", "r1"))
+    store.append_function_call(run.id, ev.id, _fc("a", "r0"))
+    store.set_environment(run.id, ev.id, _Env(counter=1))
+    store.append_function_call(run.id, ev.id, _fc("b", "r1"))
+    r0, r1 = ev.function_calls
     # Second call's pre-env is the first call's post-env...
     assert r1.pre_environment == r0.post_environment
     # ...and its post-env reflects the set_environment that happened in between.
     assert isinstance(r1.post_environment, _Env)
     assert r1.post_environment.counter == 1
-    assert ev.function_calls == [r0, r1]
 
 
 def test_append_function_call_post_env_is_deep_copy():
@@ -133,26 +135,37 @@ def test_append_function_call_post_env_is_deep_copy():
     run = store.create_run()
     env = _Env(counter=0)
     ev = _make_eval(store, run.id, environment=env)
-    rec = store.append_function_call(ev, _fc("a", "r"))
+    store.append_function_call(run.id, ev.id, _fc("a", "r"))
+    rec = ev.function_calls[-1]
     env.counter = 99  # mutate the live env in place after recording
     # The recorded snapshot is a deep copy, so it doesn't track later mutations.
     assert isinstance(rec.post_environment, _Env)
     assert rec.post_environment.counter == 0
 
 
-# --- observations / grade / complete ---
+# --- environment / observations / grade / complete ---
+
+
+def test_set_environment_replaces():
+    store = InMemoryStore()
+    run = store.create_run()
+    ev = _make_eval(store, run.id, environment=_Env(counter=1))
+    new_env = _Env(counter=2)
+    # Returns the mutated evaluation; the new env is installed on it.
+    assert store.set_environment(run.id, ev.id, new_env) is ev
+    assert ev.environment is new_env
 
 
 def test_record_observations_keyed_by_source():
     store = InMemoryStore()
     run = store.create_run()
     ev = _make_eval(store, run.id)
-    obs = store.record_observations(ev, "openshell", ["e1"])
-    assert obs == {"openshell": ["e1"]}
-    store.record_observations(ev, "acs", {"x": 1})
+    assert store.record_observations(run.id, ev.id, "openshell", ["e1"]) is ev
+    assert ev.observations == {"openshell": ["e1"]}
+    store.record_observations(run.id, ev.id, "acs", {"x": 1})
     assert ev.observations == {"openshell": ["e1"], "acs": {"x": 1}}
     # A second write to the same source replaces that source's value only.
-    store.record_observations(ev, "openshell", ["e2"])
+    store.record_observations(run.id, ev.id, "openshell", ["e2"])
     assert ev.observations == {"openshell": ["e2"], "acs": {"x": 1}}
 
 
@@ -161,7 +174,7 @@ def test_set_grade():
     run = store.create_run()
     ev = _make_eval(store, run.id)
     # Distinct values guard against the two flags being swapped.
-    store.set_grade(ev, utility=True, security=False)
+    assert store.set_grade(run.id, ev.id, utility=True, security=False) is ev
     assert ev.utility is True
     assert ev.security is False
 
@@ -170,7 +183,7 @@ def test_complete_evaluation():
     store = InMemoryStore()
     run = store.create_run()
     ev = _make_eval(store, run.id)
-    store.complete_evaluation(ev, "final answer")
+    assert store.complete_evaluation(run.id, ev.id, "final answer") is ev
     # Completing records both the flag and the agent's final output.
     assert ev.completed is True
     assert ev.agent_output == "final answer"
