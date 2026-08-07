@@ -17,13 +17,18 @@ old module-global ``state.current_eval`` for now.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from midojo.types import Environment, FunctionCallRecord
 
 from .models import CreateFunctionCallRecord
-from .state import Evaluation, Run, _new_id
+from .state import Evaluation, Run
+
+
+def _new_id() -> str:
+    return uuid.uuid4().hex[:8]
 
 
 class Store(Protocol):

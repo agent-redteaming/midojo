@@ -180,3 +180,30 @@ def test_complete_evaluation(store):
     # Completing records both the flag and the agent's final output.
     assert ev.completed is True
     assert ev.agent_output == "final answer"
+
+
+# --- mutations return None for an unknown (run, eval) ---
+#
+# Every per-eval mutation honors the uniform `Evaluation | None` contract (the
+# HTTP layer turns that None into a 404 / 400). Per-method coverage so the
+# contract stays pinned at each entry point for future Store implementations.
+
+
+def test_append_function_call_unknown_returns_none(store):
+    assert store.append_function_call("nope", "nope", _fc("a", "r")) is None
+
+
+def test_set_environment_unknown_returns_none(store):
+    assert store.set_environment("nope", "nope", _Env()) is None
+
+
+def test_record_observations_unknown_returns_none(store):
+    assert store.record_observations("nope", "nope", "src", []) is None
+
+
+def test_set_grade_unknown_returns_none(store):
+    assert store.set_grade("nope", "nope", utility=True, security=True) is None
+
+
+def test_complete_evaluation_unknown_returns_none(store):
+    assert store.complete_evaluation("nope", "nope", "out") is None

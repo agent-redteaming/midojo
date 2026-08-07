@@ -8,7 +8,6 @@ in-memory (lost on restart); a db-backed store may replace it later.
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -20,10 +19,6 @@ from midojo.yaml_task_suite import YAMLTaskSuite
 
 if TYPE_CHECKING:
     from .store import Store
-
-
-def _new_id() -> str:
-    return uuid.uuid4().hex[:8]
 
 
 # --- State models ---
