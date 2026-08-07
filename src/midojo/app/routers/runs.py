@@ -121,6 +121,7 @@ def retrieve_evaluation(evaluation: Annotated[Evaluation, Depends(get_evaluation
         completed=evaluation.completed,
         utility=evaluation.utility,
         security=evaluation.security,
+        security_reason=evaluation.security_reason,
         agent_input=evaluation.agent_input,
         agent_output=evaluation.agent_output,
         function_calls=[FunctionCallResponse.model_validate(fc) for fc in evaluation.function_calls],
@@ -158,8 +159,15 @@ def grade_evaluation(
         function_calls=evaluation.function_calls,
         observations=evaluation.observations,
     )
-    store.set_grade(evaluation.run_id, evaluation.id, utility=result["utility"], security=result["security"])
-    return GradeResponse(**result)
+    graded = GradeResponse.model_validate(result)
+    store.set_grade(
+        evaluation.run_id,
+        evaluation.id,
+        utility=graded.utility,
+        security=graded.security,
+        security_reason=graded.security_reason,
+    )
+    return graded
 
 
 # --- Environment endpoints (nested under evaluation) ---

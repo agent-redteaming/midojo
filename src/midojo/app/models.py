@@ -95,6 +95,7 @@ class EvaluationResponse(BaseModel):
     completed: bool
     utility: bool | None
     security: bool | None
+    security_reason: str | None = None
     agent_input: str | None
     agent_output: str | None
     function_calls: list[FunctionCallResponse]
