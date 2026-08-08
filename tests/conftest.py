@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from midojo.app import state
 from midojo.app.routers import runs, tasks, tools
 from midojo.app.routers import suite as suite_router
+from midojo.app.store import InMemoryStore
 from midojo.suites import get_suite
 
 task_suite = get_suite("weather")
@@ -23,8 +24,7 @@ def environment():
 @pytest.fixture()
 def app() -> FastAPI:
     state.suite = task_suite
-    state.runs = {}
-    state.current_eval = None
+    state.store = InMemoryStore()
     application = FastAPI()
     application.include_router(suite_router.router)
     application.include_router(tasks.router)
