@@ -17,6 +17,5 @@ def suite_info(suite: Annotated[YAMLTaskSuite, Depends(get_suite)]):
     return SuiteInfoResponse(
         user_tasks=list(suite.user_tasks.keys()),
         injection_tasks=list(suite.injection_tasks.keys()),
-        tools=suite.get_tool_names(),
         environment=suite.provision_environment({}),
     )

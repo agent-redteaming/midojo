@@ -93,13 +93,12 @@ class EvaluationResponse(BaseModel):
     function_calls: list[FunctionCallResponse]
 
 
-# --- Suite / task / tool response models ---
+# --- Suite / task response models ---
 
 
 class SuiteInfoResponse(BaseModel):
     user_tasks: list[str]
     injection_tasks: list[str]
-    tools: list[str]
     environment: Environment
 
 
@@ -108,9 +107,3 @@ class TaskDetailResponse(BaseModel):
     type: str
     prompt: str | None = None
     description: str | None = None
-
-
-class ToolInfoResponse(BaseModel):
-    name: str
-    description: str
-    parameters: dict

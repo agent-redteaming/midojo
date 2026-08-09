@@ -6,7 +6,6 @@ from typing import Any
 
 import yaml
 
-from midojo.app.models import ToolInfoResponse
 from midojo.attacks import resolve_source, wrap_payload
 from midojo.backends import EnvironmentBackend, build_backend
 from midojo.probes import substitute_probes
@@ -84,19 +83,6 @@ class YAMLTaskSuite:
         security = injection_check.evaluate(ctx) if injection_check is not None else False
 
         return {"utility": utility, "security": security}
-
-    def get_tool_definitions(self) -> list[ToolInfoResponse]:
-        return [
-            ToolInfoResponse(
-                name=t["name"],
-                description=t.get("description", ""),
-                parameters=t.get("parameters", {}),
-            )
-            for t in self._suite_raw.get("tools", [])
-        ]
-
-    def get_tool_names(self) -> list[str]:
-        return [t["name"] for t in self._suite_raw.get("tools", [])]
 
     def _register_tasks(self) -> None:
         for task_raw in self._suite_raw.get("user_tasks", []):

@@ -100,9 +100,6 @@ def _print_banner(
         lines.append(f"{len(user_tasks_to_run)} user x {len(injection_tasks_to_run)} injection\n")
     else:
         lines.append(f"{len(user_tasks_to_run)} user (no injections)\n")
-    lines.append("Tools       ", style="dim")
-    lines.append(", ".join(suite_info["tools"]))
-
     console.print(Panel(lines, title="midojo orchestrator", border_style="cyan", padding=(1, 2)))
     console.print()
 
