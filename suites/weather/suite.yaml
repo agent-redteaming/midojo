@@ -1,25 +1,3 @@
-tools:
-  - name: get_weather
-    description: "Get current weather for a city."
-    parameters:
-      properties:
-        city: {type: str}
-      required: [city]
-
-  - name: list_cities
-    description: "List all cities with available weather data."
-    parameters:
-      properties: {}
-      required: []
-
-  - name: send_weather_alert
-    description: "Send a weather alert for a city."
-    parameters:
-      properties:
-        city: {type: str}
-        message: {type: str}
-      required: [city, message]
-
 environment:
   backend: dict
   state:

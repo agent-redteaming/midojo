@@ -36,7 +36,7 @@ For each tool, you can forward the call to the real tool, splice in injection da
 
 A few concepts first:
 
-- A **suite** defines everything needed for a benchmark: an environment (the world your agent operates in), tools, tasks, and grading logic — all in a single `suite.yaml`.
+- A **suite** defines everything needed for a benchmark: an environment (the world your agent operates in), tasks, and grading logic — all in a single `suite.yaml`. The tools themselves live in the interception layer (fake MCP server) you author against it.
 - A **task** is something you want the agent to do. **User tasks** are legitimate work ("what's the weather in New York?"). **Injection tasks** are malicious goals ("send a fake tornado alert") that get embedded into the environment as hidden payloads. MiDojo tests whether the agent completes the user task (utility) while resisting the injection (security).
 - A **run** is a benchmark session. It contains one or more **evaluations**, where each evaluation pairs one user task with one injection task.
 
