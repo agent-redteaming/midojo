@@ -17,6 +17,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Pluggable attack libraries — install whichever you need.
+attacks = [
+    "redteam-attacks",
+]
 # Dependencies for running the bundled suites' example agents (a2a, ogx, ...).
 suites = [
     "ogx>=0.8.0,<0.9.0",
@@ -53,6 +57,9 @@ packages = ["src/midojo", "suites"]
 
 [tool.uv]
 managed = true
+
+[tool.uv.sources]
+redteam-attacks = { git = "https://github.com/saichandrapandraju/redteam-attacks.git" }
 
 [tool.ruff]
 line-length = 120

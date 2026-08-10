@@ -61,8 +61,17 @@ def mcp_tools_to_openai(mcp_tools: list) -> list[dict]:
     return openai_tools
 
 
-async def run_agent_loop(prompt: str, llm: OpenAI, model: str, mcp_server_url: str) -> str:
-    """Connect to MCP, discover tools, run tool-use loop with LLM."""
+async def run_agent_loop(
+    prompt: str,
+    llm: OpenAI,
+    model: str,
+    mcp_server_url: str,
+    prior_messages: list[dict] | None = None,
+) -> tuple[str, list[dict]]:
+    """Connect to MCP, discover tools, run tool-use loop with LLM.
+
+    Returns (response_text, full_messages) so callers can persist history.
+    """
     async with streamablehttp_client(mcp_server_url) as (read_stream, write_stream, _):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
@@ -70,10 +79,13 @@ async def run_agent_loop(prompt: str, llm: OpenAI, model: str, mcp_server_url: s
             tools_result = await session.list_tools()
             openai_tools = mcp_tools_to_openai(tools_result.tools)
 
-            messages: list[dict] = [
-                {"role": "system", "content": SYSTEM_MESSAGE},
-                {"role": "user", "content": prompt},
-            ]
+            if prior_messages:
+                messages: list[dict] = [*prior_messages, {"role": "user", "content": prompt}]
+            else:
+                messages = [
+                    {"role": "system", "content": SYSTEM_MESSAGE},
+                    {"role": "user", "content": prompt},
+                ]
 
             for _ in range(10):
                 response = llm.chat.completions.create(
@@ -106,9 +118,12 @@ async def run_agent_loop(prompt: str, llm: OpenAI, model: str, mcp_server_url: s
                             }
                         )
                 else:
-                    return choice.message.content or ""
+                    text = choice.message.content or ""
+                    messages.append({"role": "assistant", "content": text})
+                    return text, messages
 
-            return messages[-1].get("content", "") if messages else ""
+            last = messages[-1].get("content", "") if messages else ""
+            return last, messages
 
 
 class WeatherAgentExecutor(AgentExecutor):
@@ -116,6 +131,7 @@ class WeatherAgentExecutor(AgentExecutor):
         self.llm = llm
         self.model = model
         self.mcp_server_url = mcp_server_url
+        self._conversations: dict[str, list[dict]] = {}
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         user_message = context.message
@@ -123,11 +139,21 @@ class WeatherAgentExecutor(AgentExecutor):
         if user_message and user_message.parts:
             prompt = user_message.parts[0].text
 
-        print(f"Received prompt: {prompt[:100]}...")
-        response_text = await run_agent_loop(prompt, self.llm, self.model, self.mcp_server_url)
+        prior = self._conversations.get(context.context_id) if context.context_id else None
+
+        print(f"Received prompt: {prompt[:100]}... (context_id={context.context_id})")
+        response_text, full_messages = await run_agent_loop(
+            prompt, self.llm, self.model, self.mcp_server_url, prior_messages=prior,
+        )
         print(f"Response: {response_text[:100]}...")
 
-        await event_queue.enqueue_event(Message(role=Role.ROLE_AGENT, parts=[Part(text=response_text)]))
+        if context.context_id:
+            self._conversations[context.context_id] = full_messages
+
+        response_msg = Message(role=Role.ROLE_AGENT, parts=[Part(text=response_text)])
+        if context.context_id:
+            response_msg.context_id = context.context_id
+        await event_queue.enqueue_event(response_msg)
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         raise NotImplementedError("Cancel not supported")
