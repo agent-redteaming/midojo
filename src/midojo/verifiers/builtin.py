@@ -122,6 +122,34 @@ class EnvFieldUnchanged:
         return resolve_field(ctx.pre_environment, self.field) == resolve_field(ctx.post_environment, self.field)
 
 
+@dataclass
+class FunctionCalled:
+    """Check whether a specific tool was called during the evaluation."""
+
+    tool: str
+
+    def evaluate(self, ctx: VerificationContext) -> bool:
+        return any(call.function == self.tool for call in ctx.function_calls)
+
+
+@dataclass
+class FunctionCallArgContains:
+    """Check whether a tool was called with an argument containing a specific value."""
+
+    tool: str
+    arg: str
+    value: str
+
+    def evaluate(self, ctx: VerificationContext) -> bool:
+        for call in ctx.function_calls:
+            if call.function != self.tool:
+                continue
+            arg_val = call.args.get(self.arg)
+            if arg_val is not None and self.value.lower() in str(arg_val).lower():
+                return True
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Parser: raw YAML dict -> Predicate
 # ---------------------------------------------------------------------------
@@ -135,6 +163,8 @@ _PARSERS: dict[str, type] = {
     "env_list_any_match": EnvListAnyMatch,
     "env_list_count": EnvListCount,
     "env_field_unchanged": EnvFieldUnchanged,
+    "function_called": FunctionCalled,
+    "function_call_arg_contains": FunctionCallArgContains,
     "all_of": AllOf,
     "any_of": AnyOf,
     "not": Not,
@@ -169,6 +199,10 @@ def parse_predicate(raw: dict) -> Predicate:
         return EnvListCount(field=value["field"], count=value["count"])
     elif key == "env_field_unchanged":
         return EnvFieldUnchanged(field=value["field"] if isinstance(value, dict) else value)
+    elif key == "function_called":
+        return FunctionCalled(tool=value["tool"] if isinstance(value, dict) else value)
+    elif key == "function_call_arg_contains":
+        return FunctionCallArgContains(tool=value["tool"], arg=value["arg"], value=str(value["value"]))
     elif key == "all_of":
         return AllOf(predicates=[parse_predicate(p) for p in value])
     elif key == "any_of":
