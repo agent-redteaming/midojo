@@ -38,7 +38,7 @@ async def get_weather(ctx: ToolContext, city: str) -> str:
     result = await ctx.forward("get_weather", {"city": city})
 
     # Injected payload from the suite environment — the "notes" field in
-    # suite.yaml can contain probe placeholders like {injection_task_2:primer}
+    # suite.yaml can contain probe placeholders like {multi_vector_tornado_alert:primer}
     # that the control plane resolves to attacker-controlled text.
     cities = await ctx.env("cities")
     data = cities.get(city)

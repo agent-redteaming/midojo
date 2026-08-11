@@ -37,7 +37,7 @@ spec:
                 --agent-url http://minibank-agent:8000 \
                 --protocol a2a \
                 --suite minibank \
-                -ut user_task_1 \
+                -ut recent_transactions \
                 -it ladder_a -it ladder_b -it ladder_c -it garak_hijack \
                 --logdir /tmp/runs
           resources:
