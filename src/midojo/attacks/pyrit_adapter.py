@@ -483,13 +483,19 @@ async def run_pyrit_strategy(
             tree_depth=params.get("max_iterations", 5),
         )
     elif strategy_type == "tap":
+        # FIXME: batch_size forced to 1 (sequential) because MiDojo's control plane
+        # uses a single `/current` pointer for the active evaluation. Concurrent evals
+        # would race on this pointer. Remove this constraint once the control plane
+        # supports eval-scoped resolution (session tokens or explicit eval IDs in the
+        # fake MCP server).
         attack = TreeOfAttacksWithPruningAttack(
             objective_target=target,
             attack_adversarial_config=adversarial_config,
             attack_scoring_config=tap_scoring,
-            tree_width=params.get("tree_width", 10),
+            tree_width=params.get("tree_width", 3),
             tree_depth=params.get("max_iterations", 5),
-            branching_factor=params.get("branching_factor", 4),
+            branching_factor=params.get("branching_factor", 2),
+            batch_size=params.get("batch_size", 1),
         )
     elif strategy_type == "crescendo":
         attack = CrescendoAttack(
