@@ -124,6 +124,17 @@ class MiDojoTarget(PromptTarget):
     ``send_message`` with conversation state tracking.
     """
 
+    if _PYRIT_AVAILABLE:
+        from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
+        from pyrit.prompt_target.common.target_configuration import TargetConfiguration
+
+        _DEFAULT_CONFIGURATION = TargetConfiguration(
+            capabilities=TargetCapabilities(
+                supports_multi_turn=True,
+                supports_editable_history=True,
+            ),
+        )
+
     def __init__(
         self,
         *,
@@ -148,6 +159,8 @@ class MiDojoTarget(PromptTarget):
         self._conversation_state: Any = None
         self._eval_log: list[dict[str, Any]] = []
         self._iteration = 0
+        self._conv_eval_id: str | None = None
+        self._prev_call_count = 0
 
     async def _send_prompt_to_target_async(
         self, *, normalized_conversation: list[Message]
@@ -241,16 +254,49 @@ class MiDojoTarget(PromptTarget):
         self._iteration += 1
         logger.info("turn %d: message=%s", self._iteration, message)
 
-        response_text, self._conversation_state = await self._agent_client.send_message(
-            message, self._conversation_state
-        )
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            if self._conv_eval_id is None:
+                eval_resp = await client.post(
+                    f"{self._control_url}/runs/{self._run_id}/evaluations",
+                    json={
+                        "user_task_id": self._user_task_id,
+                        "injection_task_id": self._injection_task_id,
+                        "injections": {},
+                    },
+                )
+                eval_resp.raise_for_status()
+                self._conv_eval_id = eval_resp.json()["id"]
+                logger.info("turn %d: created eval %s for conversation", self._iteration, self._conv_eval_id)
 
-        logger.info("turn %d: response=%s", self._iteration, response_text)
+            response_text, self._conversation_state = await self._agent_client.send_message(
+                message, self._conversation_state
+            )
+
+            calls_resp = await client.get(f"{self._control_url}/current/function-calls")
+            all_calls = calls_resp.json() if calls_resp.status_code == 200 else []
+            new_calls = all_calls[self._prev_call_count:]
+            self._prev_call_count = len(all_calls)
+
+            env_resp = await client.get(f"{self._control_url}/current/environment")
+            env_state = env_resp.json() if env_resp.status_code == 200 else {}
+
+        new_tool_names = [c.get("function", "?") for c in new_calls]
+        notifications = env_state.get("notifications", [])
+        security_signal = len(notifications) > 0
+
+        logger.info(
+            "turn %d: response=%s new_tools=[%s] notifications=%d security_signal=%s",
+            self._iteration, response_text[:200], ", ".join(new_tool_names), len(notifications), security_signal,
+        )
 
         entry = {
             "turn": self._iteration,
             "message": message,
             "response": response_text,
+            "new_tool_calls": new_calls,
+            "new_tool_names": new_tool_names,
+            "total_notifications": len(notifications),
+            "security_signal": security_signal,
             "conversation_state": str(self._conversation_state) if self._conversation_state else None,
         }
         self._eval_log.append(entry)
@@ -262,6 +308,8 @@ class MiDojoTarget(PromptTarget):
             converted_value=response_text,
             converted_value_data_type="text",
             prompt_metadata={
+                "midojo_security_passed": security_signal,
+                "midojo_function_calls": new_calls,
                 "midojo_conversation_state": str(self._conversation_state) if self._conversation_state else None,
             },
         )
@@ -537,6 +585,23 @@ async def run_pyrit_strategy(
     eval_log = target._eval_log
     eval_ids = [e.get("eval_id", e.get("turn", "?")) for e in eval_log]
     last_output = eval_log[-1].get("agent_output", eval_log[-1].get("response", "")) if eval_log else ""
+
+    if is_conversational and target._conv_eval_id:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            await client.post(
+                f"{control_url}/runs/{run_id}/evaluations/{target._conv_eval_id}/complete",
+                json={"agent_output": last_output},
+            )
+            grade_resp = await client.post(
+                f"{control_url}/runs/{run_id}/evaluations/{target._conv_eval_id}/grade",
+            )
+            if grade_resp.status_code == 200:
+                grade = grade_resp.json()
+                final_security = grade.get("security", False)
+                if final_security:
+                    success = True
+                logger.info("crescendo final grade: security=%s utility=%s", final_security, grade.get("utility"))
+        eval_ids = [target._conv_eval_id]
 
     logger.info(
         "strategy %s finished: success=%s, iterations=%d, eval_ids=%s",
