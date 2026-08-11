@@ -219,6 +219,26 @@ async def run_task(
         return result
 
 
+def _resolve_strategy(
+    injection_task: object | None,
+    strategy_override: str | None,
+    attacker_config: dict | None,
+) -> dict | None:
+    """Determine the strategy config for an injection task.
+
+    Priority: CLI --strategy override > suite YAML strategy block.
+    Returns None for static (no strategy) execution.
+    """
+    if strategy_override:
+        cfg: dict = {"type": strategy_override}
+        if attacker_config:
+            cfg.update(attacker_config)
+        return cfg
+    if injection_task and getattr(injection_task, "strategy_config", None):
+        return injection_task.strategy_config
+    return None
+
+
 async def run_benchmark(
     control_url: str,
     agent_client: AgentClient,
@@ -229,6 +249,8 @@ async def run_benchmark(
     user_task_ids: list[str] | None,
     injection_task_ids: list[str] | None,
     logdir: Path,
+    attacker_config: dict | None = None,
+    strategy_override: str | None = None,
 ) -> None:
     user_tasks_to_run = user_task_ids or list(suite.user_tasks.keys())
     injection_tasks_to_run: list[str]
@@ -253,7 +275,49 @@ async def run_benchmark(
     for ut_id in user_tasks_to_run:
         for it_id in it_ids_to_run:
             injections = suite.get_probes_for_task(it_id) if it_id else {}
-            result = await run_task(control_url, agent_client, run_id, ut_id, it_id, injections)
+            injection_task = suite.injection_tasks.get(it_id) if it_id else None
+            strategy_cfg = _resolve_strategy(injection_task, strategy_override, attacker_config)
+
+            if strategy_cfg and it_id:
+                from midojo.attacks.pyrit_adapter import run_pyrit_strategy
+
+                seed_payload = ""
+                wrapper_fn = None
+                if injection_task:
+                    probes_raw = suite._suite_raw.get("injection_tasks", [])
+                    for t in probes_raw:
+                        if t["id"] == it_id:
+                            for p in t.get("probes", {}).values():
+                                seed_payload = p.get("payload", "")
+                                wrapper_id = p.get("wrapper") or p.get("attack_type")
+                                if wrapper_id and wrapper_id != "verbatim":
+                                    from midojo.attacks import wrap_payload
+
+                                    wrapper_fn = lambda payload, _w=wrapper_id: wrap_payload(payload, _w)
+                                break
+                            break
+
+                user_task_prompt = suite.user_tasks[ut_id].prompt if ut_id in suite.user_tasks else ""
+
+                result = await run_pyrit_strategy(
+                    strategy_config=strategy_cfg,
+                    control_url=control_url,
+                    agent_client=agent_client,
+                    run_id=run_id,
+                    user_task_id=ut_id,
+                    injection_task_id=it_id,
+                    injection_task=injection_task,
+                    user_task_prompt=user_task_prompt,
+                    seed_payload=seed_payload,
+                    wrapper_fn=wrapper_fn,
+                    attacker_model_override=attacker_config.get("attacker_model") if attacker_config else None,
+                    attacker_base_url_override=attacker_config.get("attacker_base_url") if attacker_config else None,
+                    attacker_api_key_override=attacker_config.get("attacker_api_key") if attacker_config else None,
+                    logdir=str(logdir),
+                )
+            else:
+                result = await run_task(control_url, agent_client, run_id, ut_id, it_id, injections)
+
             utility_results[TaskPair(ut_id, it_id or "")] = result["utility"]
             eval_id = result["eval_id"]
             eval_url = f"{control_url}/runs/{run_id}/evaluations/{eval_id}"
@@ -263,15 +327,21 @@ async def run_benchmark(
             _print_agent_text("agent output", result["agent_output"])
             console.print("    ", _utility(result["utility"]))
             if it_id:
-                hit_channels = await _injection_reached_agent(control_url, run_id, eval_id, injections)
-                if hit_channels:
+                if result.get("strategy_type"):
                     security_results[TaskPair(ut_id, it_id)] = result["security"]
-                    counts = Counter(hit_channels)
-                    parts = [f"{ch} x{n}" if n > 1 else ch for ch, n in counts.items()]
-                    via = ", ".join(parts)
-                    console.print("    ", _security(result["security"]), Text(f"  (injection in {via})", style="dim"))
+                    n = result.get("n_evals", "?")
+                    stype = result["strategy_type"]
+                    console.print("    ", _security(result["security"]), Text(f"  ({n} evals via {stype})", style="dim"))
                 else:
-                    console.print("    ", Text("N/A (payload not in any result)", style="dim"))
+                    hit_channels = await _injection_reached_agent(control_url, run_id, eval_id, injections)
+                    if hit_channels:
+                        security_results[TaskPair(ut_id, it_id)] = result["security"]
+                        counts = Counter(hit_channels)
+                        parts = [f"{ch} x{n}" if n > 1 else ch for ch, n in counts.items()]
+                        via = ", ".join(parts)
+                        console.print("    ", _security(result["security"]), Text(f"  (injection in {via})", style="dim"))
+                    else:
+                        console.print("    ", Text("N/A (payload not in any result)", style="dim"))
 
     console.print()
 
@@ -321,6 +391,23 @@ async def run_benchmark(
     help="Model ID for the Responses API (ogx and openai protocols). "
          "Env: MODEL_NAME. Example: gpt-4o-mini, ollama/qwen3.5:2b.",
 )
+@click.option(
+    "--attacker-model", default=None, envvar="ATTACKER_MODEL",
+    help="Model for the attacker LLM in adaptive strategies (PAIR, Crescendo). Env: ATTACKER_MODEL.",
+)
+@click.option(
+    "--attacker-base-url", default=None, envvar="ATTACKER_BASE_URL",
+    help="Base URL for the attacker LLM API. Env: ATTACKER_BASE_URL.",
+)
+@click.option(
+    "--attacker-api-key", default=None, envvar="ATTACKER_API_KEY",
+    help="API key for the attacker LLM. Env: ATTACKER_API_KEY.",
+)
+@click.option(
+    "--strategy", "strategy_override", default=None,
+    type=click.Choice(["pair", "crescendo"]),
+    help="Override attack strategy for all injection tasks.",
+)
 def main(
     control_url: str,
     agent_url: str,
@@ -333,6 +420,10 @@ def main(
     ogx_shield: str | None,
     mcp_server_label: str | None,
     model_name: str | None,
+    attacker_model: str | None,
+    attacker_base_url: str | None,
+    attacker_api_key: str | None,
+    strategy_override: str | None,
 ) -> None:
     for module in modules_to_load:
         importlib.import_module(module)
@@ -366,6 +457,14 @@ def main(
     else:
         agent_client = SimpleHTTPAgentClient(agent_url)
 
+    attacker_cfg = None
+    if attacker_model:
+        attacker_cfg = {
+            "attacker_model": attacker_model,
+            "attacker_base_url": attacker_base_url,
+            "attacker_api_key": attacker_api_key,
+        }
+
     asyncio.run(
         run_benchmark(
             control_url=control_url,
@@ -377,6 +476,8 @@ def main(
             user_task_ids=list(user_tasks) if user_tasks else None,
             injection_task_ids=list(injection_tasks) if injection_tasks else None,
             logdir=logdir,
+            attacker_config=attacker_cfg,
+            strategy_override=strategy_override,
         )
     )
 

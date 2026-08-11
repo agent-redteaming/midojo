@@ -4,6 +4,7 @@ import abc
 import asyncio
 import os
 import uuid
+from typing import Any
 
 import httpx
 
@@ -13,6 +14,21 @@ class AgentClient(abc.ABC):
     async def send_task(self, prompt: str) -> str:
         """Send a task prompt to the agent and return its final text output."""
         ...
+
+    @property
+    def supports_multi_turn(self) -> bool:
+        """Whether this client supports stateful multi-turn conversations."""
+        return type(self).send_message is not AgentClient.send_message
+
+    async def send_message(self, message: str, state: Any = None) -> tuple[str, Any]:
+        """Send a message in a multi-turn conversation.
+
+        Returns ``(output_text, response_state)`` where ``response_state``
+        can be passed to the next call to maintain conversation state.
+        Default implementation falls back to ``send_task`` (no state).
+        """
+        output = await self.send_task(message)
+        return output, None
 
 
 class SimpleHTTPAgentClient(AgentClient):
@@ -86,6 +102,49 @@ class A2AAgentClient(AgentClient):
         finally:
             await client.close()
 
+    async def send_message(self, message: str, state: Any = None) -> tuple[str, Any]:
+        from a2a.client import ClientConfig, create_client
+        from a2a.types import Message, Part, Role, SendMessageRequest
+
+        config = ClientConfig(
+            httpx_client=httpx.AsyncClient(timeout=self.timeout),
+        )
+        client = await create_client(self.agent_url, client_config=config)
+        try:
+            msg = Message(
+                role=Role.ROLE_USER,
+                message_id=uuid.uuid4().hex,
+                parts=[Part(text=message)],
+            )
+            if state:
+                msg.context_id = state
+
+            result_text = ""
+            context_id = state
+            async for event in client.send_message(SendMessageRequest(message=msg)):
+                payload_type = event.WhichOneof("payload")
+                if payload_type == "message":
+                    for part in event.message.parts:
+                        if part.text:
+                            result_text += part.text
+                    if event.message.context_id:
+                        context_id = event.message.context_id
+                elif payload_type == "task":
+                    if event.task.context_id:
+                        context_id = event.task.context_id
+                    for artifact in event.task.artifacts:
+                        for part in artifact.parts:
+                            if part.text:
+                                result_text += part.text
+                elif payload_type == "artifact_update":
+                    for part in event.artifact_update.artifact.parts:
+                        if part.text:
+                            result_text = part.text
+
+            return result_text, context_id
+        finally:
+            await client.close()
+
 
 class OpenAIResponsesAgentClient(AgentClient):
     """Calls any OpenAI Responses API endpoint (OpenAI cloud, Llama Stack, vLLM, etc.).
@@ -138,6 +197,29 @@ class OpenAIResponsesAgentClient(AgentClient):
             stream=False,
         )
         return response.output_text
+
+    async def send_message(self, message: str, state: Any = None) -> tuple[str, Any]:
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key, timeout=self.timeout)
+        kwargs: dict = dict(
+            model=self.model,
+            input=message,
+            instructions=self.instructions,
+            tools=[
+                {
+                    "type": "mcp",
+                    "server_label": self.mcp_server_label,
+                    "server_url": self.mcp_server_url,
+                    "require_approval": "never",
+                },
+            ],
+            stream=False,
+        )
+        if state:
+            kwargs["previous_response_id"] = state
+        response = await client.responses.create(**kwargs)
+        return response.output_text, response.id
 
 
 class OGXResponsesClient(AgentClient):

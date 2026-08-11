@@ -26,6 +26,9 @@ suites = [
     "pypdf",
     "openai>=1.0",
 ]
+pyrit = [
+    "pyrit>=1.0",
+]
 dev = [
     "pytest>=8.0.2",
     "pytest-asyncio>=0.24",

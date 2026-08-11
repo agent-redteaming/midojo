@@ -21,11 +21,23 @@ class UserTask:
 
 
 @dataclass
+class ProbePlacement:
+    """Where a probe placeholder was found in the suite."""
+
+    probe_key: str
+    field_path: str
+    surrounding_text: str
+    in_user_prompt: bool = False
+
+
+@dataclass
 class InjectionTask:
     id: str
     description: str
     probes: dict[str, str] = field(default_factory=dict)
     check: Check | None = None
+    strategy_config: dict[str, Any] | None = None
+    probe_placements: list[ProbePlacement] = field(default_factory=list)
 
 
 class YAMLTaskSuite:
@@ -93,12 +105,17 @@ class YAMLTaskSuite:
         for task_raw in self._suite_raw.get("injection_tasks", []):
             task_id = task_raw["id"]
             check = parse_check(task_raw["security"])
-            probes = self._parse_probes(task_id, task_raw.get("probes", {}))
+            probes_raw = task_raw.get("probes", {})
+            strategy_config = self._extract_strategy_config(probes_raw)
+            probes = self._parse_probes(task_id, probes_raw)
+            placements = self._detect_probe_placements(task_id, probes_raw)
             self.injection_tasks[task_id] = InjectionTask(
                 id=task_id,
                 description=task_raw["description"],
                 check=check,
                 probes=probes,
+                strategy_config=strategy_config,
+                probe_placements=placements,
             )
 
     def _parse_probes(self, task_id: str, raw: dict[str, dict]) -> dict[str, str]:
@@ -106,10 +123,67 @@ class YAMLTaskSuite:
         for probe_id, probe_raw in raw.items():
             try:
                 payload = self._resolve_probe_payload(probe_raw)
-                probes[probe_id] = wrap_payload(payload, probe_raw.get("attack_type", "verbatim"))
+                wrapper_id = probe_raw.get("wrapper") or probe_raw.get("attack_type", "verbatim")
+                probes[probe_id] = wrap_payload(payload, wrapper_id)
             except ValueError as e:
                 raise ValueError(f"Probe '{task_id}:{probe_id}': {e}") from None
         return probes
+
+    @staticmethod
+    def _extract_strategy_config(probes_raw: dict[str, dict]) -> dict[str, Any] | None:
+        """Extract strategy config from the first probe that declares one."""
+        for probe_raw in probes_raw.values():
+            strategy = probe_raw.get("strategy")
+            if strategy:
+                return dict(strategy)
+        return None
+
+    def _detect_probe_placements(self, task_id: str, probes_raw: dict[str, dict]) -> list[ProbePlacement]:
+        """Walk the environment and user prompts to find where each probe placeholder appears."""
+        placements: list[ProbePlacement] = []
+        probe_ids = list(probes_raw.keys())
+
+        env_state = self._suite_raw.get("environment", {}).get("state", {})
+        for probe_id in probe_ids:
+            key = f"{task_id}:{probe_id}"
+            placeholder = "{" + key + "}"
+            self._find_in_structure(env_state, placeholder, key, "", placements)
+
+        for ut in self._suite_raw.get("user_tasks", []):
+            prompt = ut.get("prompt", "")
+            for probe_id in probe_ids:
+                key = f"{task_id}:{probe_id}"
+                placeholder = "{" + key + "}"
+                if placeholder in prompt:
+                    placements.append(ProbePlacement(
+                        probe_key=key,
+                        field_path=f"user_tasks.{ut['id']}.prompt",
+                        surrounding_text=prompt,
+                        in_user_prompt=True,
+                    ))
+
+        return placements
+
+    @staticmethod
+    def _find_in_structure(
+        obj: Any, placeholder: str, probe_key: str, path: str, results: list[ProbePlacement],
+    ) -> None:
+        """Recursively search a nested dict/list for a probe placeholder string."""
+        if isinstance(obj, str) and placeholder in obj:
+            results.append(ProbePlacement(
+                probe_key=probe_key,
+                field_path=path,
+                surrounding_text=obj,
+                in_user_prompt=False,
+            ))
+        elif isinstance(obj, dict):
+            for k, v in obj.items():
+                child_path = f"{path}.{k}" if path else k
+                YAMLTaskSuite._find_in_structure(v, placeholder, probe_key, child_path, results)
+        elif isinstance(obj, list):
+            for i, v in enumerate(obj):
+                child_path = f"{path}[{i}]"
+                YAMLTaskSuite._find_in_structure(v, placeholder, probe_key, child_path, results)
 
     def _resolve_probe_payload(self, probe_raw: dict) -> str:
         """A probe's cargo is either an inline ``payload`` or a library ``source``."""
