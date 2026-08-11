@@ -405,7 +405,7 @@ async def run_benchmark(
 )
 @click.option(
     "--strategy", "strategy_override", default=None,
-    type=click.Choice(["pair", "crescendo"]),
+    type=click.Choice(["pair", "tap", "crescendo", "red_team", "prompt_sending", "skeleton_key", "many_shot"]),
     help="Override attack strategy for all injection tasks.",
 )
 def main(

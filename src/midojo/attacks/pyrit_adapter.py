@@ -29,7 +29,14 @@ try:
     from pyrit.executor.attack.core.attack_config import AttackAdversarialConfig, AttackScoringConfig
     from pyrit.executor.attack.multi_turn.crescendo import CrescendoAttack
     from pyrit.executor.attack.multi_turn.pair import PAIRAttack
-    from pyrit.executor.attack.multi_turn.tree_of_attacks import TAPAttackScoringConfig
+    from pyrit.executor.attack.multi_turn.red_teaming import RedTeamingAttack
+    from pyrit.executor.attack.multi_turn.tree_of_attacks import (
+        TAPAttackScoringConfig,
+        TreeOfAttacksWithPruningAttack,
+    )
+    from pyrit.executor.attack.single_turn.many_shot_jailbreak import ManyShotJailbreakAttack
+    from pyrit.executor.attack.single_turn.prompt_sending import PromptSendingAttack
+    from pyrit.executor.attack.single_turn.skeleton_key import SkeletonKeyAttack
     from pyrit.models import Message, MessagePiece, Score
     from pyrit.prompt_target import LiteLLMChatTarget, PromptTarget
     from pyrit.score import FloatScaleThresholdScorer, ScorerPromptValidator
@@ -463,36 +470,60 @@ async def run_pyrit_strategy(
         system_prompt=custom_system_prompt,
     )
 
+    threshold_scorer = FloatScaleThresholdScorer(scorer=scorer, threshold=params.get("threshold", 0.7))
+    tap_scoring = TAPAttackScoringConfig(objective_scorer=threshold_scorer)
+    general_scoring = AttackScoringConfig(objective_scorer=threshold_scorer)
+
     if strategy_type == "pair":
-        scoring_config = TAPAttackScoringConfig(
-            objective_scorer=FloatScaleThresholdScorer(
-                scorer=scorer,
-                threshold=params.get("threshold", 0.7),
-            ),
-        )
         attack = PAIRAttack(
             objective_target=target,
             attack_adversarial_config=adversarial_config,
-            attack_scoring_config=scoring_config,
+            attack_scoring_config=tap_scoring,
             tree_width=params.get("num_streams", 3),
             tree_depth=params.get("max_iterations", 5),
         )
-    elif strategy_type == "crescendo":
-        scoring_config_c = AttackScoringConfig(
-            objective_scorer=FloatScaleThresholdScorer(
-                scorer=scorer,
-                threshold=params.get("threshold", 0.7),
-            ),
+    elif strategy_type == "tap":
+        attack = TreeOfAttacksWithPruningAttack(
+            objective_target=target,
+            attack_adversarial_config=adversarial_config,
+            attack_scoring_config=tap_scoring,
+            tree_width=params.get("tree_width", 10),
+            tree_depth=params.get("max_iterations", 5),
+            branching_factor=params.get("branching_factor", 4),
         )
+    elif strategy_type == "crescendo":
         attack = CrescendoAttack(
             objective_target=target,
             attack_adversarial_config=adversarial_config,
-            attack_scoring_config=scoring_config_c,
+            attack_scoring_config=general_scoring,
             max_turns=params.get("max_turns", 10),
             max_backtracks=params.get("max_backtracks", 10),
         )
+    elif strategy_type == "red_team":
+        attack = RedTeamingAttack(
+            objective_target=target,
+            attack_adversarial_config=adversarial_config,
+            attack_scoring_config=general_scoring,
+            max_turns=params.get("max_turns", 10),
+        )
+    elif strategy_type == "prompt_sending":
+        attack = PromptSendingAttack(
+            objective_target=target,
+            attack_scoring_config=general_scoring,
+        )
+    elif strategy_type == "skeleton_key":
+        attack = SkeletonKeyAttack(
+            objective_target=target,
+            attack_scoring_config=general_scoring,
+        )
+    elif strategy_type == "many_shot":
+        attack = ManyShotJailbreakAttack(
+            objective_target=target,
+            attack_scoring_config=general_scoring,
+        )
     else:
-        raise ValueError(f"Unknown strategy type: {strategy_type}. Supported: pair, crescendo")
+        supported = "pair, tap, crescendo, red_team, prompt_sending, skeleton_key, many_shot"
+        raise ValueError(f"Unknown strategy type: {strategy_type}. Supported: {supported}")
 
     result = await attack.execute_async(objective=objective)
 
