@@ -131,11 +131,23 @@ class YAMLTaskSuite:
 
     @staticmethod
     def _extract_strategy_config(probes_raw: dict[str, dict]) -> dict[str, Any] | None:
-        """Extract strategy config from the first probe that declares one."""
+        """Extract strategy config from the first probe that declares one.
+
+        Convention: probes WITHOUT a strategy block are injection probes
+        (placed in env data). Probes WITH a strategy block drive the attack.
+        """
         for probe_raw in probes_raw.values():
             strategy = probe_raw.get("strategy")
             if strategy:
                 return dict(strategy)
+        return None
+
+    @staticmethod
+    def get_strategy_probe_id(probes_raw: dict[str, dict]) -> str | None:
+        """Return the probe ID that carries the strategy config, if any."""
+        for probe_id, probe_raw in probes_raw.items():
+            if probe_raw.get("strategy"):
+                return probe_id
         return None
 
     def _detect_probe_placements(self, task_id: str, probes_raw: dict[str, dict]) -> list[ProbePlacement]:

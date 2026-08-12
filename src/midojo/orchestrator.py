@@ -280,21 +280,30 @@ async def run_benchmark(
 
             if strategy_cfg and it_id:
                 from midojo.attacks.pyrit_adapter import run_pyrit_strategy
+                from midojo.yaml_task_suite import YAMLTaskSuite
 
                 seed_payload = ""
                 wrapper_fn = None
+                strategy_probe_id = "main"
                 if injection_task:
                     probes_raw = suite._suite_raw.get("injection_tasks", [])
                     for t in probes_raw:
                         if t["id"] == it_id:
-                            for p in t.get("probes", {}).values():
-                                seed_payload = p.get("payload", "")
-                                wrapper_id = p.get("wrapper") or p.get("attack_type")
-                                if wrapper_id and wrapper_id != "verbatim":
-                                    from midojo.attacks import wrap_payload
+                            raw_probes = t.get("probes", {})
+                            sp_id = YAMLTaskSuite.get_strategy_probe_id(raw_probes)
+                            if sp_id:
+                                strategy_probe_id = sp_id
+                                seed_payload = raw_probes[sp_id].get("payload", "")
+                            else:
+                                first_probe = next(iter(raw_probes.values()), {})
+                                seed_payload = first_probe.get("payload", "")
 
-                                    wrapper_fn = lambda payload, _w=wrapper_id: wrap_payload(payload, _w)
-                                break
+                            first_probe_raw = next(iter(raw_probes.values()), {})
+                            wrapper_id = first_probe_raw.get("wrapper") or first_probe_raw.get("attack_type")
+                            if wrapper_id and wrapper_id != "verbatim":
+                                from midojo.attacks import wrap_payload
+
+                                wrapper_fn = lambda payload, _w=wrapper_id: wrap_payload(payload, _w)
                             break
 
                 user_task_prompt = suite.user_tasks[ut_id].prompt if ut_id in suite.user_tasks else ""
@@ -308,7 +317,9 @@ async def run_benchmark(
                     injection_task_id=it_id,
                     injection_task=injection_task,
                     user_task_prompt=user_task_prompt,
+                    probe_id=strategy_probe_id,
                     seed_payload=seed_payload,
+                    static_injections=injections,
                     wrapper_fn=wrapper_fn,
                     attacker_model_override=attacker_config.get("attacker_model") if attacker_config else None,
                     attacker_base_url_override=attacker_config.get("attacker_base_url") if attacker_config else None,
