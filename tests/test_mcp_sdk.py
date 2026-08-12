@@ -20,7 +20,7 @@ def eval_context(control_plane: TestClient) -> tuple[TestClient, str, str]:
     run_id = control_plane.post("/runs").json()["id"]
     eval_resp = control_plane.post(
         f"/runs/{run_id}/evaluations",
-        json={"user_task_id": "user_task_0"},
+        json={"user_task_id": "weather_new_york"},
     ).json()
     return control_plane, run_id, eval_resp["id"]
 

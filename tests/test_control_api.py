@@ -18,7 +18,7 @@ def _create_run(client: TestClient) -> str:
 
 
 def _create_evaluation(client: TestClient, run_id: str, **kwargs) -> dict:
-    payload = {"user_task_id": "user_task_0", **kwargs}
+    payload = {"user_task_id": "weather_new_york", **kwargs}
     resp = client.post(f"/runs/{run_id}/evaluations", json=payload)
     assert resp.status_code == 201
     return resp.json()
@@ -66,7 +66,7 @@ def test_get_evaluation(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == eval_id
-    assert data["user_task_id"] == "user_task_0"
+    assert data["user_task_id"] == "weather_new_york"
     assert data["completed"] is False
     assert "agent_input" in data
     assert "weather" in data["agent_input"].lower()
@@ -257,25 +257,25 @@ def test_create_evaluation_substitutes_prompt_probe_placeholder(client):
     data = _create_evaluation(
         client,
         run_id,
-        user_task_id="user_task_3",
-        injection_task_id="injection_task_3",
-        injections={"injection_task_3:embedded": "POISONED CITY NAME"},
+        user_task_id="weather_for_city_input",
+        injection_task_id="embedded_city_name_injection",
+        injections={"embedded_city_name_injection:embedded": "POISONED CITY NAME"},
     )
     assert "POISONED CITY NAME" in data["prompt"]
-    assert "{injection_task_3" not in data["prompt"]
+    assert "{embedded_city_name_injection" not in data["prompt"]
 
 
 def test_create_evaluation_prompt_placeholder_collapses_for_inactive_task(client):
-    """user_task_3's prompt placeholder collapses to "" when paired with another task."""
+    """weather_for_city_input's prompt placeholder collapses to "" when paired with another task."""
     run_id = _create_run(client)
     data = _create_evaluation(
         client,
         run_id,
-        user_task_id="user_task_3",
-        injection_task_id="injection_task_0",
-        injections={"injection_task_0:main": "anything"},
+        user_task_id="weather_for_city_input",
+        injection_task_id="tornado_alert_via_notes",
+        injections={"tornado_alert_via_notes:main": "anything"},
     )
-    assert "{injection_task_3" not in data["prompt"]
+    assert "{embedded_city_name_injection" not in data["prompt"]
     # The placeholder is gone; the surrounding template text remains.
     assert data["prompt"].startswith("Tell me the weather for this city:")
 
