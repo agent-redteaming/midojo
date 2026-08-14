@@ -6,7 +6,6 @@ from typing import Any
 
 import yaml
 
-from midojo.app.models import ToolInfoResponse
 from midojo.attacks import resolve_source, wrap_payload
 from midojo.backends import EnvironmentBackend, build_backend
 from midojo.probes import substitute_probes
@@ -69,7 +68,7 @@ class YAMLTaskSuite:
         post_environment: Environment,
         function_calls: list[FunctionCallRecord],
         observations: dict[str, Any] | None = None,
-    ) -> dict[str, bool]:
+    ) -> dict[str, bool | str | None]:
         ctx = VerificationContext(
             agent_output=agent_output,
             pre_environment=pre_environment,
@@ -80,23 +79,16 @@ class YAMLTaskSuite:
 
         utility = self.user_tasks[user_task_id].check.evaluate(ctx)
 
+        # One traversal grades the injection and names the criterion that fired.
         injection_check = self.injection_tasks[injection_task_id].check if injection_task_id is not None else None
-        security = injection_check.evaluate(ctx) if injection_check is not None else False
+        security = False
+        security_reason: str | None = None
+        if injection_check is not None:
+            result = injection_check.assess(ctx)
+            security = result.passed
+            security_reason = result.reason if result.passed else None
 
-        return {"utility": utility, "security": security}
-
-    def get_tool_definitions(self) -> list[ToolInfoResponse]:
-        return [
-            ToolInfoResponse(
-                name=t["name"],
-                description=t.get("description", ""),
-                parameters=t.get("parameters", {}),
-            )
-            for t in self._suite_raw.get("tools", [])
-        ]
-
-    def get_tool_names(self) -> list[str]:
-        return [t["name"] for t in self._suite_raw.get("tools", [])]
+        return {"utility": utility, "security": security, "security_reason": security_reason}
 
     def _register_tasks(self) -> None:
         for task_raw in self._suite_raw.get("user_tasks", []):

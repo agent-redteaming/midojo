@@ -7,6 +7,7 @@ from midojo.verifiers import (  # noqa: F401
     Not,
     Predicate,
     VerificationContext,
+    VerificationResult,
     Verifier,
     parse_check,
     register_verifier,

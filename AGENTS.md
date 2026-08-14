@@ -53,7 +53,7 @@ for additional examples refer to [README.md](./README.md).
 
 ## Key Concepts
 
-- **Suite** (`suites/<name>/suite.yaml`): defines tools, environment state, user tasks (benign), and injection tasks (adversarial). The `dict` backend keeps state in-memory; `openshell` (container-based) requires the optional openshell SDK
+- **Suite** (`suites/<name>/suite.yaml`): defines environment state, user tasks (benign), and injection tasks (adversarial). The `dict` backend keeps state in-memory; `openshell` (container-based) requires the optional openshell SDK
 - **Probe**: a slot in the environment or user task prompt where an injection payload gets placed. Referenced via `{injection_task_id:probe_name}` placeholders
 - **Attack technique** (`src/midojo/attacks/builtin.py`): wraps a raw payload in a delivery technique (e.g. `important_instructions`, `ignore_previous`, `verbatim`)
 - **Payload set** (`src/midojo/attacks/data/`): curated corpus of payloads from external sources (e.g. Garak). Referenced in suite YAML via `source: "garak:<name>"`
@@ -62,7 +62,7 @@ for additional examples refer to [README.md](./README.md).
 ## Patterns for Common Changes
 
 **Add a new suite (bundled)** — follow `suites/weather/` as the minimal example:
-1. create `suites/<name>/suite.yaml` with `tools`, `environment`, `user_tasks`, `injection_tasks`
+1. create `suites/<name>/suite.yaml` with `environment`, `user_tasks`, `injection_tasks`
 2. create `suites/<name>/__init__.py` exporting `SYSTEM_MESSAGE` and `task_suite` (see below)
 3. create fake and real MCP servers under `suites/<name>/a2a_agent/`
 4. for convenience, register CLI entrypoints in `pyproject.toml` under `[project.scripts]`

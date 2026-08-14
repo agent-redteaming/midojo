@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 450" width="1920" height="900">
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+  </style>
+
+  <rect width="960" height="450" fill="#ffffff" rx="8"/>
+
+  <!-- Agent -->
+  <rect x="250" y="5" width="460" height="70" rx="12" fill="rgba(8,145,178,0.08)" stroke="#0891b2" stroke-width="2.5"/>
+  <text x="480" y="35" text-anchor="middle" font-size="24" font-weight="800" fill="#0891b2">Agent</text>
+  <text x="480" y="55" text-anchor="middle" font-size="12" fill="#0e7490" font-family="monospace">LLM + Framework (any protocol)</text>
+
+  <!-- MiDojo boundary -->
+  <rect x="15" y="105" width="930" height="270" rx="14" fill="none" stroke="#6366f1" stroke-width="2.5" stroke-dasharray="8,4"/>
+  <text x="30" y="125" font-size="20" fill="#4f46e5" font-weight="800" font-family="monospace">MiDojo</text>
+
+  <!-- Orchestrator -->
+  <rect x="35" y="140" width="175" height="220" rx="10" fill="rgba(99,102,241,0.04)" stroke="rgba(99,102,241,0.15)" stroke-width="1.5"/>
+  <text x="123" y="162" text-anchor="middle" font-size="16" font-weight="800" fill="#1e293b">Orchestrator</text>
+  <text x="123" y="178" text-anchor="middle" font-size="10" fill="#64748b" font-family="monospace">midojo-run</text>
+  <text x="50" y="200" font-size="10" fill="#475569">1. Create evaluation</text>
+  <text x="50" y="216" font-size="10" fill="#475569">2. Send prompt to agent</text>
+  <text x="50" y="232" font-size="10" fill="#475569">3. Wait for completion</text>
+  <text x="50" y="248" font-size="10" fill="#475569">4. Trigger grading</text>
+
+  <!-- INPUT channel -->
+  <rect x="50" y="270" width="150" height="30" rx="6" fill="rgba(220,38,38,0.06)" stroke="#dc2626" stroke-width="1"/>
+  <text x="125" y="283" text-anchor="middle" font-size="10" font-weight="700" fill="#b91c1c">[1] INPUT channel</text>
+  <text x="125" y="295" text-anchor="middle" font-size="8" fill="#dc2626" font-family="monospace">prompt inject (before send)</text>
+
+  <!-- Attack Library -->
+  <rect x="25" y="390" width="195" height="42" rx="8" fill="rgba(190,24,93,0.04)" stroke="#be185d" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="123" y="408" text-anchor="middle" font-size="12" font-weight="700" fill="#9d174d">Attack Library</text>
+  <text x="123" y="423" text-anchor="middle" font-size="9" fill="#be185d" font-family="monospace">pluggable &#xB7; wrappers + strategies</text>
+  <line x1="123" y1="390" x2="123" y2="365" stroke="#be185d" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#m-coral)"/>
+  <text x="130" y="386" font-size="8" fill="#be185d" font-family="monospace">ctx.run_evaluation()</text>
+
+  <!-- Prompt arrow -->
+  <path d="M 123 140 L 123 90 L 250 50" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#m-red)"/>
+  <text x="170" y="92" font-size="11" fill="#b91c1c" font-weight="600">prompt (+ [1] injected)</text>
+
+  <!-- Interception Layer -->
+  <rect x="230" y="140" width="370" height="125" rx="10" fill="rgba(180,130,10,0.04)" stroke="#b45309" stroke-width="2"/>
+  <text x="415" y="162" text-anchor="middle" font-size="16" font-weight="800" fill="#92400e">Interception Layer</text>
+  <text x="415" y="178" text-anchor="middle" font-size="10" fill="#a16207" font-family="monospace">MCP SDK (Python) &#xB7; PI SDK (TypeScript)</text>
+
+  <!-- Channel badges -->
+  <rect x="310" y="190" width="95" height="32" rx="6" fill="rgba(5,150,105,0.06)" stroke="#059669" stroke-width="1"/>
+  <text x="358" y="203" text-anchor="middle" font-size="9" font-weight="700" fill="#047857">[2] DATA</text>
+  <text x="358" y="216" text-anchor="middle" font-size="8" fill="#059669" font-family="monospace">env state sub</text>
+
+  <rect x="420" y="190" width="105" height="32" rx="6" fill="rgba(124,58,237,0.06)" stroke="#7c3aed" stroke-width="1"/>
+  <text x="473" y="203" text-anchor="middle" font-size="9" font-weight="700" fill="#6d28d9">[3] TOOL RESP</text>
+  <text x="473" y="216" text-anchor="middle" font-size="8" fill="#7c3aed" font-family="monospace">output splice</text>
+
+  <text x="415" y="248" text-anchor="middle" font-size="10" fill="#92400e">Per tool: forward, intercept, or inject</text>
+
+  <!-- Tool calls arrows -->
+  <line x1="430" y1="75" x2="430" y2="140" stroke="#b45309" stroke-width="2.5" marker-end="url(#m-amber)"/>
+  <text x="418" y="125" text-anchor="end" font-size="11" fill="#92400e" font-weight="600">tool calls</text>
+  <line x1="500" y1="140" x2="500" y2="75" stroke="#dc2626" stroke-width="2.5" marker-end="url(#m-red-up)"/>
+  <text x="512" y="118" font-size="10" fill="#b91c1c">results</text>
+  <text x="512" y="130" font-size="9" fill="#dc2626" font-family="monospace">(+ injected)</text>
+
+  <!-- Control Plane -->
+  <rect x="620" y="140" width="310" height="220" rx="10" fill="rgba(99,102,241,0.03)" stroke="rgba(99,102,241,0.2)" stroke-width="1.5"/>
+  <text x="775" y="162" text-anchor="middle" font-size="16" font-weight="800" fill="#1e293b">Control Plane</text>
+  <text x="775" y="178" text-anchor="middle" font-size="10" fill="#64748b" font-family="monospace">midojo-serve (passive REST API)</text>
+
+  <rect x="635" y="190" width="135" height="50" rx="6" fill="rgba(99,102,241,0.04)" stroke="rgba(99,102,241,0.18)" stroke-width="1"/>
+  <text x="703" y="208" text-anchor="middle" font-size="12" font-weight="700" fill="#1e293b">Eval State</text>
+  <text x="703" y="224" text-anchor="middle" font-size="9" fill="#64748b" font-family="monospace">environment</text>
+  <text x="703" y="234" text-anchor="middle" font-size="9" fill="#64748b" font-family="monospace">injections &#xB7; hooks</text>
+
+  <rect x="780" y="190" width="135" height="50" rx="6" fill="rgba(99,102,241,0.04)" stroke="rgba(99,102,241,0.18)" stroke-width="1"/>
+  <text x="848" y="208" text-anchor="middle" font-size="12" font-weight="700" fill="#1e293b">Call Trace</text>
+  <text x="848" y="224" text-anchor="middle" font-size="9" fill="#64748b" font-family="monospace">tool name + args</text>
+  <text x="848" y="234" text-anchor="middle" font-size="9" fill="#64748b" font-family="monospace">+ return values</text>
+
+  <!-- Verifiers -->
+  <rect x="635" y="260" width="280" height="40" rx="6" fill="rgba(8,145,178,0.06)" stroke="#0891b2" stroke-width="1"/>
+  <text x="775" y="278" text-anchor="middle" font-size="12" font-weight="700" fill="#0891b2">Verifiers</text>
+  <text x="775" y="293" text-anchor="middle" font-size="9" fill="#0e7490" font-family="monospace">utility + security predicates on state + call trace</text>
+
+  <!-- Grade -->
+  <rect x="635" y="315" width="280" height="35" rx="6" fill="rgba(8,145,178,0.06)" stroke="#0891b2" stroke-width="1"/>
+  <text x="775" y="330" text-anchor="middle" font-size="11" font-weight="700" fill="#0891b2">Grade</text>
+  <text x="775" y="343" text-anchor="middle" font-size="9" fill="#0e7490" font-family="monospace">utility: task done? &#xB7; security: attack succeeded?</text>
+
+  <!-- HTTP arrow -->
+  <line x1="210" y1="350" x2="620" y2="350" stroke="rgba(0,0,0,0.3)" stroke-width="1.5" marker-end="url(#m-gray)"/>
+  <text x="415" y="364" text-anchor="middle" font-size="10" fill="#64748b" font-weight="600" font-family="monospace">HTTP: create eval &#xB7; complete &#xB7; grade</text>
+
+  <!-- Interception - Control Plane -->
+  <line x1="600" y1="220" x2="635" y2="220" stroke="rgba(0,0,0,0.3)" stroke-width="1.5" marker-end="url(#m-gray)"/>
+  <line x1="635" y1="208" x2="600" y2="208" stroke="rgba(0,0,0,0.3)" stroke-width="1.5" stroke-dasharray="3,2" marker-end="url(#m-gray-l)"/>
+  <text x="617" y="230" text-anchor="middle" font-size="9" fill="#64748b" font-family="monospace">env</text>
+  <text x="617" y="241" text-anchor="middle" font-size="9" fill="#64748b" font-family="monospace">hooks</text>
+  <text x="617" y="252" text-anchor="middle" font-size="9" fill="#64748b" font-family="monospace">record</text>
+
+  <!-- Forward arrows -->
+  <line x1="395" y1="265" x2="395" y2="395" stroke="#059669" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#m-green)"/>
+  <text x="385" y="340" text-anchor="end" font-size="10" fill="#047857" font-weight="600">forward</text>
+  <line x1="435" y1="395" x2="435" y2="265" stroke="#059669" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#m-green-u)"/>
+  <text x="445" y="340" font-size="10" fill="#047857">real data</text>
+
+  <!-- Real Tools -->
+  <rect x="230" y="395" width="370" height="40" rx="10" fill="rgba(5,150,105,0.04)" stroke="#059669" stroke-width="1.5"/>
+  <text x="415" y="415" text-anchor="middle" font-size="16" font-weight="700" fill="#059669">Real Tools</text>
+  <text x="415" y="430" text-anchor="middle" font-size="10" fill="#0d9488" font-family="monospace">MCP / Native &#xB7; Data Sources &#xB7; Knowledge Bases</text>
+
+  <defs>
+    <marker id="m-amber" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#b45309"/></marker>
+    <marker id="m-red" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#dc2626"/></marker>
+    <marker id="m-red-up" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#dc2626"/></marker>
+    <marker id="m-coral" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#be185d"/></marker>
+    <marker id="m-green" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#059669"/></marker>
+    <marker id="m-green-u" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#059669"/></marker>
+    <marker id="m-gray" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="rgba(0,0,0,0.35)"/></marker>
+    <marker id="m-gray-l" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="rgba(0,0,0,0.35)"/></marker>
+  </defs>
+</svg>

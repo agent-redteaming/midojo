@@ -235,6 +235,35 @@ class TestNestedCombinators:
         assert p.evaluate(_ctx(post=StatusItemsEnv(status="inactive", items=[])))
 
 
+class TestAssess:
+    """assess() names the criterion behind a passing verdict — the reason a user
+    sees when a security check fires. One case per surfaced reason shape; the
+    boolean and the failure paths are already covered by the evaluate() tests.
+    """
+
+    def test_leaf_reports_passed_and_reason(self):
+        o = OutputContains(value="sunny").assess(_ctx("it is sunny"))
+        assert o.passed is True
+        assert o.reason == 'output contains "sunny"'
+
+    def test_any_of_reports_only_the_branch_that_fired(self):
+        p = AnyOf(predicates=[OutputContains(value="rainy"), OutputContains(value="sunny")])
+        o = p.assess(_ctx("72°F and sunny"))
+        assert o.passed is True
+        assert o.reason == 'output contains "sunny"'  # not the rainy branch
+
+    def test_all_of_reason_is_the_conjunction_when_passed(self):
+        p = AllOf(predicates=[OutputContains(value="72"), OutputContains(value="sunny")])
+        o = p.assess(_ctx("72°F and sunny"))
+        assert o.passed is True
+        assert o.reason == 'all of (output contains "72"; output contains "sunny")'
+
+    def test_not_wraps_child_reason(self):
+        o = Not(predicate=OutputContains(value="rainy")).assess(_ctx("it is sunny"))
+        assert o.passed is True
+        assert o.reason == 'not (output contains "rainy")'
+
+
 class TestParsePredicate:
     def test_output_contains(self):
         p = parse_predicate({"output_contains": "sunny"})

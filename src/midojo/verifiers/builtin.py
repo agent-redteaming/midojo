@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from midojo.types import Environment
-from midojo.verifiers import AllOf, AnyOf, Not, Predicate, VerificationContext, register_verifier
+from midojo.verifiers import AllOf, AnyOf, Not, Predicate, VerificationContext, VerificationResult, register_verifier
 from midojo.verifiers.openshell import (
     CommandsMatchPattern,
     NetworkCallBlockedTo,
@@ -54,26 +54,38 @@ def resolve_field(env: Environment, path: str) -> Any:
 class OutputContains:
     value: str
 
+    def assess(self, ctx: VerificationContext) -> VerificationResult:
+        passed = self.value.lower() in ctx.agent_output.lower()
+        return VerificationResult(passed, f'output contains "{self.value}"')
+
     def evaluate(self, ctx: VerificationContext) -> bool:
-        return self.value.lower() in ctx.agent_output.lower()
+        return self.assess(ctx).passed
 
 
 @dataclass
 class OutputContainsAll:
     values: list[str]
 
-    def evaluate(self, ctx: VerificationContext) -> bool:
+    def assess(self, ctx: VerificationContext) -> VerificationResult:
         lower = ctx.agent_output.lower()
-        return all(v.lower() in lower for v in self.values)
+        passed = all(v.lower() in lower for v in self.values)
+        return VerificationResult(passed, f"output contains all of {self.values}")
+
+    def evaluate(self, ctx: VerificationContext) -> bool:
+        return self.assess(ctx).passed
 
 
 @dataclass
 class OutputContainsAny:
     values: list[str]
 
-    def evaluate(self, ctx: VerificationContext) -> bool:
+    def assess(self, ctx: VerificationContext) -> VerificationResult:
         lower = ctx.agent_output.lower()
-        return any(v.lower() in lower for v in self.values)
+        passed = any(v.lower() in lower for v in self.values)
+        return VerificationResult(passed, f"output contains any of {self.values}")
+
+    def evaluate(self, ctx: VerificationContext) -> bool:
+        return self.assess(ctx).passed
 
 
 @dataclass
@@ -81,8 +93,12 @@ class EnvFieldEquals:
     field: str
     value: Any
 
+    def assess(self, ctx: VerificationContext) -> VerificationResult:
+        passed = resolve_field(ctx.post_environment, self.field) == self.value
+        return VerificationResult(passed, f"{self.field} == {self.value!r}")
+
     def evaluate(self, ctx: VerificationContext) -> bool:
-        return resolve_field(ctx.post_environment, self.field) == self.value
+        return self.assess(ctx).passed
 
 
 @dataclass
@@ -90,9 +106,13 @@ class EnvFieldContains:
     field: str
     value: str
 
-    def evaluate(self, ctx: VerificationContext) -> bool:
+    def assess(self, ctx: VerificationContext) -> VerificationResult:
         field_val = resolve_field(ctx.post_environment, self.field)
-        return self.value.lower() in str(field_val).lower()
+        passed = self.value.lower() in str(field_val).lower()
+        return VerificationResult(passed, f'{self.field} contains "{self.value}"')
+
+    def evaluate(self, ctx: VerificationContext) -> bool:
+        return self.assess(ctx).passed
 
 
 @dataclass
@@ -100,18 +120,25 @@ class EnvListAnyMatch:
     field: str
     match: dict[str, str]
 
-    def evaluate(self, ctx: VerificationContext) -> bool:
+    def assess(self, ctx: VerificationContext) -> VerificationResult:
         items = resolve_field(ctx.post_environment, self.field)
-        if not isinstance(items, list):
-            return False
-        for item in items:
-            if isinstance(item, dict):
-                if all(k in item and self.match[k].lower() in str(item[k]).lower() for k in self.match):
-                    return True
-            else:
-                if all(hasattr(item, k) and self.match[k].lower() in str(getattr(item, k)).lower() for k in self.match):
-                    return True
-        return False
+        passed = False
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict):
+                    if all(k in item and self.match[k].lower() in str(item[k]).lower() for k in self.match):
+                        passed = True
+                        break
+                elif all(
+                    hasattr(item, k) and self.match[k].lower() in str(getattr(item, k)).lower() for k in self.match
+                ):
+                    passed = True
+                    break
+        match_str = ", ".join(f"{k}={v}" for k, v in self.match.items())
+        return VerificationResult(passed, f"{self.field} matches {match_str}")
+
+    def evaluate(self, ctx: VerificationContext) -> bool:
+        return self.assess(ctx).passed
 
 
 @dataclass
@@ -119,17 +146,25 @@ class EnvListCount:
     field: str
     count: int
 
-    def evaluate(self, ctx: VerificationContext) -> bool:
+    def assess(self, ctx: VerificationContext) -> VerificationResult:
         items = resolve_field(ctx.post_environment, self.field)
-        return isinstance(items, list) and len(items) == self.count
+        passed = isinstance(items, list) and len(items) == self.count
+        return VerificationResult(passed, f"{self.field} has {self.count} items")
+
+    def evaluate(self, ctx: VerificationContext) -> bool:
+        return self.assess(ctx).passed
 
 
 @dataclass
 class EnvFieldUnchanged:
     field: str
 
+    def assess(self, ctx: VerificationContext) -> VerificationResult:
+        passed = resolve_field(ctx.pre_environment, self.field) == resolve_field(ctx.post_environment, self.field)
+        return VerificationResult(passed, f"{self.field} unchanged")
+
     def evaluate(self, ctx: VerificationContext) -> bool:
-        return resolve_field(ctx.pre_environment, self.field) == resolve_field(ctx.post_environment, self.field)
+        return self.assess(ctx).passed
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +268,9 @@ class BuiltinVerifier:
 
     def parse(self, check_spec: dict) -> Predicate:
         return parse_predicate(check_spec)
+
+    def assess(self, check: Predicate, ctx: VerificationContext) -> VerificationResult:
+        return check.assess(ctx)
 
     def evaluate(self, check: Predicate, ctx: VerificationContext) -> bool:
         return check.evaluate(ctx)
