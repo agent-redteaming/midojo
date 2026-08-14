@@ -21,7 +21,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from midojo.types import Environment
-from midojo.verifiers import AllOf, AnyOf, Not, Predicate, VerificationContext, VerificationResult, register_verifier
+from midojo.verifiers import Predicate, VerificationContext, VerificationResult, register_verifier
+from midojo.verifiers.combinators import AllOf, AnyOf, Not
 
 
 def resolve_field(env: Environment, path: str) -> Any:
