@@ -248,6 +248,7 @@ async def run_benchmark(
 
     utility_results: dict[TaskPair, bool] = {}
     security_results: dict[TaskPair, bool] = {}
+    security_reasons: dict[TaskPair, str | None] = {}
 
     it_ids_to_run: list[str | None] = injection_tasks_to_run or [None]
     for ut_id in user_tasks_to_run:
@@ -266,10 +267,16 @@ async def run_benchmark(
                 hit_channels = await _injection_reached_agent(control_url, run_id, eval_id, injections)
                 if hit_channels:
                     security_results[TaskPair(ut_id, it_id)] = result["security"]
+                    security_reasons[TaskPair(ut_id, it_id)] = result.get("security_reason")
                     counts = Counter(hit_channels)
                     parts = [f"{ch} x{n}" if n > 1 else ch for ch, n in counts.items()]
                     via = ", ".join(parts)
-                    console.print("    ", _security(result["security"]), Text(f"  (injection in {via})", style="dim"))
+                    detail = f"injection in {via}"
+                    reason = result.get("security_reason")
+                    if result["security"] and reason:
+                        # attack succeeded — name the criterion that graded it
+                        detail += f" · {reason}"
+                    console.print("    ", _security(result["security"]), Text(f"  ({detail})", style="dim"))
                 else:
                     console.print("    ", Text("N/A (payload not in any result)", style="dim"))
 
@@ -278,11 +285,13 @@ async def run_benchmark(
     logdir.mkdir(parents=True, exist_ok=True)
     results_file = logdir / "results.json"
     all_security = {f"{k.user_task_id},{k.injection_task_id}": security_results.get(k) for k in utility_results}
+    all_security_reason = {f"{k.user_task_id},{k.injection_task_id}": security_reasons.get(k) for k in utility_results}
     with open(results_file, "w") as f:
         json.dump(
             {
                 "utility": {f"{k.user_task_id},{k.injection_task_id}": v for k, v in utility_results.items()},
                 "security": all_security,
+                "security_reason": all_security_reason,
             },
             f,
             indent=2,

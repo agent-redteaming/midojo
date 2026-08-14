@@ -45,6 +45,7 @@ class Evaluation:
     active_injections: dict[str, str] = field(default_factory=dict)
     utility: bool | None = None
     security: bool | None = None
+    security_reason: str | None = None
 
 
 class Run(BaseModel):

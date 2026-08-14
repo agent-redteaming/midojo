@@ -55,6 +55,7 @@ def test_observation_makes_security_true(tmp_path):
     )
     assert result["utility"] is True
     assert result["security"] is True
+    assert result["security_reason"] == "net_egress"  # fallback label for an evaluate-only verifier
 
 
 def test_no_observation_makes_security_false(tmp_path):
@@ -70,6 +71,7 @@ def test_no_observation_makes_security_false(tmp_path):
         observations={"openshell": ["NET:OPEN ALLOWED curl -> api.anthropic.com:443"]},
     )
     assert result["security"] is False
+    assert result["security_reason"] is None
 
     # Same suite, no observations passed at all → still False (defaults to {}).
     result_empty = suite.grade(
@@ -81,3 +83,4 @@ def test_no_observation_makes_security_false(tmp_path):
         function_calls=[],
     )
     assert result_empty["security"] is False
+    assert result_empty["security_reason"] is None

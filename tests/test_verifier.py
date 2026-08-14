@@ -64,6 +64,16 @@ class TestRegisteredVerifier:
         assert check.evaluate(_ctx(observations={"events": ["spawn:nc -e /bin/sh"]})) is True
         assert check.evaluate(_ctx(observations={"events": ["spawn:ls"]})) is False
 
+    def test_check_assess_falls_back_to_verifier_name(self):
+        # _EventsVerifier implements only evaluate(); Check.assess must still run
+        # it exactly once and label the outcome with the verifier's name.
+        check = parse_check({"events": {"contains": "spawn:nc"}})
+        hit = check.assess(_ctx(observations={"events": ["spawn:nc -e /bin/sh"]}))
+        assert hit.passed is True
+        assert hit.reason == "events"
+        miss = check.assess(_ctx(observations={"events": ["spawn:ls"]}))
+        assert miss.passed is False
+
     def test_duplicate_registration_rejected(self):
         with pytest.raises(ValueError, match="already registered"):
             register_verifier(_EventsVerifier())

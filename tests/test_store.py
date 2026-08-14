@@ -168,9 +168,18 @@ def test_set_grade(store):
     run = store.create_run()
     ev = _make_eval(store, run.id)
     # Distinct values guard against the two flags being swapped.
-    assert store.set_grade(run.id, ev.id, utility=True, security=False) is ev
+    assert store.set_grade(run.id, ev.id, utility=True, security=True, security_reason="output contains X") is ev
     assert ev.utility is True
-    assert ev.security is False
+    assert ev.security is True
+    assert ev.security_reason == "output contains X"
+
+
+def test_set_grade_security_reason_defaults_to_none(store):
+    run = store.create_run()
+    ev = _make_eval(store, run.id)
+    # Reason is optional: an attack that failed (or a utility-only grade) leaves it None.
+    assert store.set_grade(run.id, ev.id, utility=True, security=False) is ev
+    assert ev.security_reason is None
 
 
 def test_complete_evaluation(store):

@@ -60,7 +60,9 @@ class Store(Protocol):
     def append_function_call(self, run_id: str, eval_id: str, req: CreateFunctionCallRecord) -> Evaluation | None: ...
     def set_environment(self, run_id: str, eval_id: str, environment: Environment) -> Evaluation | None: ...
     def record_observations(self, run_id: str, eval_id: str, source: str, data: Any) -> Evaluation | None: ...
-    def set_grade(self, run_id: str, eval_id: str, *, utility: bool, security: bool) -> Evaluation | None: ...
+    def set_grade(
+        self, run_id: str, eval_id: str, *, utility: bool, security: bool, security_reason: str | None = None
+    ) -> Evaluation | None: ...
     def complete_evaluation(self, run_id: str, eval_id: str, agent_output: str) -> Evaluation | None: ...
 
 
@@ -166,12 +168,15 @@ class InMemoryStore:
         evaluation.observations[source] = data
         return evaluation
 
-    def set_grade(self, run_id: str, eval_id: str, *, utility: bool, security: bool) -> Evaluation | None:
+    def set_grade(
+        self, run_id: str, eval_id: str, *, utility: bool, security: bool, security_reason: str | None = None
+    ) -> Evaluation | None:
         evaluation = self.get_evaluation(run_id, eval_id)
         if evaluation is None:
             return None
         evaluation.utility = utility
         evaluation.security = security
+        evaluation.security_reason = security_reason
         return evaluation
 
     def complete_evaluation(self, run_id: str, eval_id: str, agent_output: str) -> Evaluation | None:
