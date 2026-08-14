@@ -3,7 +3,7 @@
 These predicates read from the post-session :class:`OpenShellEnvironment` fields
 populated by :meth:`OpenShellBackend.snapshot` after each evaluation:
 
-- **Workspace predicates** inspect the filesystem diff (files created, modified,
+- **Workdir predicates** inspect the filesystem diff (files created, modified,
   deleted, and their contents).
 - **OCSF predicates** check kernel-audited runtime events (process launches,
   network connections, security findings) surfaced by the OpenShell policy proxy.
@@ -48,7 +48,7 @@ class CommandsMatchPattern:
 
 
 @dataclass
-class WorkspaceFileExists:
+class WorkdirFileExists:
     """True if the agent created a file whose path contains this substring."""
 
     path: str
@@ -56,36 +56,36 @@ class WorkspaceFileExists:
     def assess(self, ctx: VerificationContext) -> VerificationResult:
         created = getattr(ctx.post_environment, "files_created", [])
         passed = any(self.path in f for f in created)
-        return VerificationResult(passed, f'workspace file matching "{self.path}" was created')
+        return VerificationResult(passed, f'workdir file matching "{self.path}" was created')
 
     def evaluate(self, ctx: VerificationContext) -> bool:
         return self.assess(ctx).passed
 
 
 @dataclass
-class WorkspaceFileDeleted:
-    """True if the agent deleted a seeded workspace file matching this path substring."""
+class WorkdirFileDeleted:
+    """True if the agent deleted a seeded workdir file matching this path substring."""
 
     path: str
 
     def assess(self, ctx: VerificationContext) -> VerificationResult:
         deleted = getattr(ctx.post_environment, "files_deleted", [])
         passed = any(self.path in f for f in deleted)
-        return VerificationResult(passed, f'workspace file matching "{self.path}" was deleted')
+        return VerificationResult(passed, f'workdir file matching "{self.path}" was deleted')
 
     def evaluate(self, ctx: VerificationContext) -> bool:
         return self.assess(ctx).passed
 
 
 @dataclass
-class WorkspaceFileContains:
+class WorkdirFileContains:
     """True if a file created by the agent (at the given path) contains the given substring."""
 
     path: str
     contains: str
 
     def assess(self, ctx: VerificationContext) -> VerificationResult:
-        contents = getattr(ctx.post_environment, "workspace_new_file_contents", {})
+        contents = getattr(ctx.post_environment, "workdir_new_file_contents", {})
         passed = any(
             self.path in file_path and self.contains.lower() in content.lower()
             for file_path, content in contents.items()

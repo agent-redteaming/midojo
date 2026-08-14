@@ -28,9 +28,9 @@ from midojo.verifiers.openshell import (
     NetworkCallTo,
     ProcessRan,
     SecurityFindingRaised,
-    WorkspaceFileContains,
-    WorkspaceFileDeleted,
-    WorkspaceFileExists,
+    WorkdirFileContains,
+    WorkdirFileDeleted,
+    WorkdirFileExists,
 )
 
 
@@ -180,11 +180,11 @@ _PARSERS: dict[str, type] = {
     "env_list_any_match": EnvListAnyMatch,
     "env_list_count": EnvListCount,
     "env_field_unchanged": EnvFieldUnchanged,
-    # OpenShell predicates (workspace diff + OCSF kernel events)
+    # OpenShell predicates (workdir diff + OCSF kernel events)
     "commands_match_pattern": CommandsMatchPattern,
-    "workspace_file_exists": WorkspaceFileExists,
-    "workspace_file_deleted": WorkspaceFileDeleted,
-    "workspace_file_contains": WorkspaceFileContains,
+    "workdir_file_exists": WorkdirFileExists,
+    "workdir_file_deleted": WorkdirFileDeleted,
+    "workdir_file_contains": WorkdirFileContains,
     "process_ran": ProcessRan,
     "network_call_to": NetworkCallTo,
     "network_call_blocked_to": NetworkCallBlockedTo,
@@ -226,12 +226,12 @@ def parse_predicate(raw: dict) -> Predicate:
         return EnvFieldUnchanged(field=value["field"] if isinstance(value, dict) else value)
     elif key == "commands_match_pattern":
         return CommandsMatchPattern(pattern=value)
-    elif key == "workspace_file_exists":
-        return WorkspaceFileExists(path=value)
-    elif key == "workspace_file_deleted":
-        return WorkspaceFileDeleted(path=value)
-    elif key == "workspace_file_contains":
-        return WorkspaceFileContains(path=value["path"], contains=value["contains"])
+    elif key == "workdir_file_exists":
+        return WorkdirFileExists(path=value)
+    elif key == "workdir_file_deleted":
+        return WorkdirFileDeleted(path=value)
+    elif key == "workdir_file_contains":
+        return WorkdirFileContains(path=value["path"], contains=value["contains"])
     elif key == "process_ran":
         return ProcessRan(binary=value)
     elif key == "network_call_to":

@@ -39,9 +39,7 @@ def _resolve_system_message(suite_name: str) -> str:
         mod = None
     msg = getattr(mod, "SYSTEM_MESSAGE", None)
     if not msg:
-        console.print(
-            f"[dim]No SYSTEM_MESSAGE in '{suite_name}' — running without a system prompt.[/dim]"
-        )
+        console.print(f"[dim]No SYSTEM_MESSAGE in '{suite_name}' — running without a system prompt.[/dim]")
         return ""
     return msg
 
@@ -296,42 +294,56 @@ async def run_benchmark(
     run_id = await _create_run(control_url)
     console.print(f"  [dim]run[/dim] [cyan underline]{run_id}[/cyan underline]\n")
 
+    # openshell provisions one workspace per run (named after run_id) around the
+    # eval loop; the sandbox itself is created/torn down per evaluation.
+    if lifecycle_backend is not None:
+        await asyncio.to_thread(lifecycle_backend.start_run, run_id)  # type: ignore[attr-defined]
+
     utility_results: dict[TaskPair, bool] = {}
     security_results: dict[TaskPair, bool] = {}
     security_reasons: dict[TaskPair, str | None] = {}
 
-    it_ids_to_run: list[str | None] = injection_tasks_to_run or [None]
-    for ut_id in user_tasks_to_run:
-        for it_id in it_ids_to_run:
-            injections = suite.get_probes_for_task(it_id) if it_id else {}
-            result = await run_task(
-                control_url, agent_client, run_id, ut_id, it_id, injections,
-                backend=lifecycle_backend,
-            )
-            utility_results[TaskPair(ut_id, it_id or "")] = result["utility"]
-            eval_id = result["eval_id"]
-            eval_url = f"{control_url}/runs/{run_id}/evaluations/{eval_id}"
-            label = f"[bold]{ut_id}[/bold] x [bold]{it_id}[/bold]" if it_id else f"[bold]{ut_id}[/bold]"
-            console.print(f"  [dim]\\[eval: [link={eval_url}][cyan]{eval_id}[/cyan][/link]][/dim] {label}")
-            _print_agent_text("agent input", result["prompt"])
-            _print_agent_text("agent output", result["agent_output"])
-            console.print("    ", _utility(result["utility"]))
-            if it_id:
-                hit_channels = await _injection_reached_agent(control_url, run_id, eval_id, injections)
-                if hit_channels:
-                    security_results[TaskPair(ut_id, it_id)] = result["security"]
-                    security_reasons[TaskPair(ut_id, it_id)] = result.get("security_reason")
-                    counts = Counter(hit_channels)
-                    parts = [f"{ch} x{n}" if n > 1 else ch for ch, n in counts.items()]
-                    via = ", ".join(parts)
-                    detail = f"injection in {via}"
-                    reason = result.get("security_reason")
-                    if result["security"] and reason:
-                        # attack succeeded — name the criterion that graded it
-                        detail += f" · {reason}"
-                    console.print("    ", _security(result["security"]), Text(f"  ({detail})", style="dim"))
-                else:
-                    console.print("    ", Text("N/A (payload not in any result)", style="dim"))
+    it_ids_to_run: list[str | None] = [*injection_tasks_to_run] if injection_tasks_to_run else [None]
+    try:
+        for ut_id in user_tasks_to_run:
+            for it_id in it_ids_to_run:
+                injections = suite.get_probes_for_task(it_id) if it_id else {}
+                result = await run_task(
+                    control_url,
+                    agent_client,
+                    run_id,
+                    ut_id,
+                    it_id,
+                    injections,
+                    backend=lifecycle_backend,
+                )
+                utility_results[TaskPair(ut_id, it_id or "")] = result["utility"]
+                eval_id = result["eval_id"]
+                eval_url = f"{control_url}/runs/{run_id}/evaluations/{eval_id}"
+                label = f"[bold]{ut_id}[/bold] x [bold]{it_id}[/bold]" if it_id else f"[bold]{ut_id}[/bold]"
+                console.print(f"  [dim]\\[eval: [link={eval_url}][cyan]{eval_id}[/cyan][/link]][/dim] {label}")
+                _print_agent_text("agent input", result["prompt"])
+                _print_agent_text("agent output", result["agent_output"])
+                console.print("    ", _utility(result["utility"]))
+                if it_id:
+                    hit_channels = await _injection_reached_agent(control_url, run_id, eval_id, injections)
+                    if hit_channels:
+                        security_results[TaskPair(ut_id, it_id)] = result["security"]
+                        security_reasons[TaskPair(ut_id, it_id)] = result.get("security_reason")
+                        counts = Counter(hit_channels)
+                        parts = [f"{ch} x{n}" if n > 1 else ch for ch, n in counts.items()]
+                        via = ", ".join(parts)
+                        detail = f"injection in {via}"
+                        reason = result.get("security_reason")
+                        if result["security"] and reason:
+                            # attack succeeded — name the criterion that graded it
+                            detail += f" · {reason}"
+                        console.print("    ", _security(result["security"]), Text(f"  ({detail})", style="dim"))
+                    else:
+                        console.print("    ", Text("N/A (payload not in any result)", style="dim"))
+    finally:
+        if lifecycle_backend is not None:
+            await asyncio.to_thread(lifecycle_backend.end_run)  # type: ignore[attr-defined]
 
     console.print()
 
@@ -355,8 +367,15 @@ async def run_benchmark(
 
 @click.command()
 @click.option("--control-url", default="http://localhost:8080", help="URL of the benchmark MCP server control plane.")
-@click.option("--agent-url", required=True, help="URL of the agent to test. For openshell: the gateway gRPC endpoint (e.g. https://127.0.0.1:17670).")
-@click.option("--suite", "suite_name", required=True, help=f"Benchmark suite name. Built-in: {', '.join(list_suites())}.")
+@click.option(
+    "--agent-url",
+    required=True,
+    help="Where to reach the agent. A URL for http/a2a/ogx/openai; a local path to the "
+    "agent dir for pi; the OpenShell gateway name for openshell.",
+)
+@click.option(
+    "--suite", "suite_name", required=True, help=f"Benchmark suite name. Built-in: {', '.join(list_suites())}."
+)
 @click.option("--user-task", "-ut", "user_tasks", multiple=True, default=(), help="Specific user task IDs.")
 @click.option(
     "--injection-task", "-it", "injection_tasks", multiple=True, default=(), help="Specific injection task IDs."
@@ -366,27 +385,33 @@ async def run_benchmark(
     "--module-to-load", "-ml", "modules_to_load", multiple=True, default=(), help="Additional modules to import."
 )
 @click.option(
-    "--protocol", type=click.Choice(["http", "a2a", "pi", "ogx", "openai", "openshell"]), required=True,
+    "--protocol",
+    type=click.Choice(["http", "a2a", "pi", "ogx", "openai", "openshell"]),
+    required=True,
     help="Agent communication protocol. "
-         "API keys are read from env vars: OPENAI_API_KEY (openai), OGX_CLIENT_API_KEY (ogx). "
-         "For openshell: omit --agent-url to use the CLI-registered active gateway.",
+    "API keys are read from env vars: OPENAI_API_KEY (openai), OGX_CLIENT_API_KEY (ogx). "
+    "For openshell: pass the gateway name via --agent-url.",
 )
 @click.option(
     "--ogx-shield", default=None, envvar="OGX_SHIELD_ID", help="Shield ID for OGX guardrails (ogx protocol only)."
 )
 @click.option(
-    "--mcp-server-label", default=None, envvar="MCP_SERVER_LABEL",
+    "--mcp-server-label",
+    default=None,
+    envvar="MCP_SERVER_LABEL",
     help="Label the MCP server is registered under on the agent's inference server. "
-         "Defaults to the suite name. Override when the server expects a different label.",
+    "Defaults to the suite name. Override when the server expects a different label.",
 )
 @click.option(
-    "--model-name", default=None, envvar="MODEL_NAME",
+    "--model-name",
+    default=None,
+    envvar="MODEL_NAME",
     help="Model ID for the Responses API (ogx and openai protocols). "
-         "Env: MODEL_NAME. Example: gpt-4o-mini, ollama/qwen3.5:2b.",
+    "Env: MODEL_NAME. Example: gpt-4o-mini, ollama/qwen3.5:2b.",
 )
 def main(
     control_url: str,
-    agent_url: str | None,
+    agent_url: str,
     suite_name: str,
     user_tasks: tuple[str, ...],
     injection_tasks: tuple[str, ...],
@@ -404,7 +429,15 @@ def main(
     agent_client: AgentClient
     lifecycle_backend: EnvironmentBackend | None = None
 
-    if protocol == "a2a":
+    if protocol == "openshell":
+        from midojo.openshell_backend import OpenShellBackend
+
+        if not isinstance(suite.backend, OpenShellBackend):
+            raise click.UsageError("--protocol openshell requires a suite with 'backend: {type: openshell, ...}'")
+        suite.backend.configure(cluster=agent_url, control_url=control_url)
+        agent_client = OpenShellAgentClient(backend=suite.backend)
+        lifecycle_backend = suite.backend
+    elif protocol == "a2a":
         agent_client = A2AAgentClient(agent_url)
     elif protocol == "pi":
         agent_client = PIAgentClient(agent_url, control_url)
@@ -428,13 +461,6 @@ def main(
             api_key=os.environ.get("OPENAI_API_KEY", "x"),
             instructions=system_message,
         )
-    elif protocol == "openshell":
-        from midojo.openshell_backend import OpenShellBackend
-        if not isinstance(suite.backend, OpenShellBackend):
-            raise click.UsageError("--protocol openshell requires a suite with 'backend: {type: openshell, ...}'")
-        suite.backend.configure(endpoint=agent_url, control_url=control_url)
-        agent_client = OpenShellAgentClient(backend=suite.backend)
-        lifecycle_backend = suite.backend
     else:
         agent_client = SimpleHTTPAgentClient(agent_url)
 

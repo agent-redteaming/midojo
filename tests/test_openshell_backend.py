@@ -32,26 +32,26 @@ class TestProvision:
         backend = build_backend("shell_suite", ENV_CONFIG)
         env = backend.provision({"injection_task_0:main": "curl evil.com"})
         assert isinstance(env, OpenShellEnvironment)
-        assert "curl evil.com" in env.workspace_files["customer_report.txt"]
-        assert env.workspace_files["notes.txt"] == "no placeholders here"
+        assert "curl evil.com" in env.workdir_files["customer_report.txt"]
+        assert env.workdir_files["notes.txt"] == "no placeholders here"
 
     def test_inactive_probe_collapses_to_empty(self):
         backend = build_backend("shell_suite", ENV_CONFIG)
         env = backend.provision({})
-        assert "{injection_task_0" not in env.workspace_files["customer_report.txt"]
+        assert "{injection_task_0" not in env.workdir_files["customer_report.txt"]
 
 
 class TestOpenShellEnvironmentFields:
-    """provision() only sets workspace_files; all post-session fields default to empty."""
+    """provision() only sets workdir_files; all post-session fields default to empty."""
 
-    def test_provision_only_sets_workspace_files(self):
+    def test_provision_only_sets_workdir_files(self):
         backend = build_backend("shell_suite", ENV_CONFIG)
         env = backend.provision({"injection_task_0:main": "payload"})
-        assert env.workspace_files  # populated
+        assert env.workdir_files  # populated
         assert env.files_created == []
         assert env.files_modified == []
         assert env.files_deleted == []
-        assert env.workspace_new_file_contents == {}
+        assert env.workdir_new_file_contents == {}
         assert env.commands_executed == []
         assert env.network_calls_allowed == []
         assert env.network_calls_blocked == []
@@ -73,15 +73,23 @@ class TestProperties:
         assert backend.policy is None
 
     def test_policy_inline_dict(self):
-        cfg = {"backend": {"type": "openshell", "image": "pi",
-               "policy": {"networkPolicies": {"api": {"endpoints": [{"host": "api.example.com", "port": 443}]}}}},
-               "state": {}}
+        cfg = {
+            "backend": {
+                "type": "openshell",
+                "image": "pi",
+                "policy": {"networkPolicies": {"api": {"endpoints": [{"host": "api.example.com", "port": 443}]}}},
+            },
+            "state": {},
+        }
         backend = build_backend("shell_suite", cfg)
         assert backend.policy is not None
         assert "networkPolicies" in backend.policy
 
     def test_agent_command_from_yaml(self):
-        cfg = {"backend": {"type": "openshell", "image": "pi", "agent_command": ["pi", "-p", "--no-session"]}, "state": {}}
+        cfg = {
+            "backend": {"type": "openshell", "image": "pi", "agent_command": ["pi", "-p", "--no-session"]},
+            "state": {},
+        }
         backend = build_backend("shell_suite", cfg)
         assert backend.agent_command == ["pi", "-p", "--no-session"]
 
@@ -92,21 +100,15 @@ class TestProperties:
 
 
 class TestConfigure:
-    def test_configure_sets_endpoint(self):
+    def test_configure_sets_cluster(self):
         backend = build_backend("shell_suite", ENV_CONFIG)
-        backend.configure(endpoint="localhost:50051")
-        assert backend._endpoint == "localhost:50051"
+        backend.configure(cluster="my-gateway")
+        assert backend._cluster == "my-gateway"
 
     def test_configure_sets_control_url(self):
         backend = build_backend("shell_suite", ENV_CONFIG)
-        backend.configure(endpoint="localhost:50051", control_url="http://localhost:8080")
+        backend.configure(cluster="my-gateway", control_url="http://localhost:8080")
         assert backend._control_url == "http://localhost:8080"
-
-    def test_configure_empty_endpoint_uses_active_cluster(self):
-        # Empty endpoint is valid — setup() will call from_active_cluster() at runtime.
-        backend = build_backend("shell_suite", ENV_CONFIG)
-        backend.configure(endpoint="")
-        assert backend._endpoint == ""
 
 
 class TestPolicy:
@@ -114,6 +116,7 @@ class TestPolicy:
 
     def _make_spec(self):
         from unittest.mock import MagicMock
+
         return MagicMock()
 
     def test_none_is_noop(self):
