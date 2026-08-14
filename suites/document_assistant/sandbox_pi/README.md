@@ -37,7 +37,7 @@ To customise the model server URL or model, edit `models.json` then build:
 ```bash
 # from repo root
 podman build -t localhost/document-assistant-local:latest \
-  -f suites/document_assistant/sandbox/Containerfile .
+  -f suites/document_assistant/sandbox_pi/Containerfile .
 ```
 
 Then update `image:` in `suite.yaml` to `localhost/document-assistant-local:latest`.

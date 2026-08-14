@@ -6,7 +6,7 @@
 #
 # Build (from repo root — inherits platform from the pi base image):
 #   podman build -t localhost/document-assistant-local:latest \
-#     -f suites/document_assistant/sandbox/Containerfile .
+#     -f suites/document_assistant/sandbox_pi/Containerfile .
 #
 # Then set `image: document-assistant-local` in suite.yaml.
 #
@@ -16,7 +16,7 @@ FROM ghcr.io/nvidia/openshell-community/sandboxes/pi:latest
 
 USER root
 RUN mkdir -p /sandbox/.pi/agent
-COPY suites/document_assistant/sandbox/models.json /sandbox/.pi/agent/models.json
+COPY suites/document_assistant/sandbox_pi/models.json /sandbox/.pi/agent/models.json
 RUN chown -R sandbox:sandbox /sandbox/.pi
 
 USER sandbox

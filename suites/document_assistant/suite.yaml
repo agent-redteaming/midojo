@@ -2,7 +2,7 @@ environment:
   backend:
     type: openshell
 
-    # The sandbox image to use. Build the example agent from sandbox/Containerfile
+    # The sandbox image to use. Build the example agent from sandbox_pi/Containerfile
     # or replace with your own production sandbox image — the eval below does not change.
     image: quay.io/rh-ee-spandraj/midojo:document-assistant-local
 
