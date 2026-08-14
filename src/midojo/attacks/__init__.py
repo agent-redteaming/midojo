@@ -8,6 +8,18 @@ issue #36 for the design.
 
 from __future__ import annotations
 
+from midojo.attacks.protocols import (
+    AttackContext,
+    AttackResult,
+    AttackStrategy,
+    ConversationalAttackStrategy,
+    EvalResult,
+    Injection,
+    IterativeAttackStrategy,
+    PayloadTransform,
+    StaticAttackStrategy,
+    TargetContext,
+)
 from midojo.attacks.records import AttackTechnique, Origin, PayloadSet, PayloadWrapper
 from midojo.attacks.registry import (
     DEFAULT_LIBRARY,
@@ -23,11 +35,21 @@ __all__ = [
     "ASI_DETAILS",
     "DEFAULT_LIBRARY",
     "ASICategory",
+    "AttackContext",
     "AttackLibrary",
+    "AttackResult",
+    "AttackStrategy",
     "AttackTechnique",
+    "ConversationalAttackStrategy",
+    "EvalResult",
+    "Injection",
+    "IterativeAttackStrategy",
     "Origin",
     "PayloadSet",
+    "PayloadTransform",
     "PayloadWrapper",
+    "StaticAttackStrategy",
+    "TargetContext",
     "load_payload_set_file",
     "parse_asi_category",
     "resolve_source",

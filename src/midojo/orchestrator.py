@@ -28,6 +28,32 @@ from midojo.yaml_task_suite import YAMLTaskSuite
 
 console = Console()
 
+_MISSING_LIBRARY_MSG = (
+    "Attack library '{library}' is not installed. "
+    "Install the default library with: pip install midojo[attacks]"
+)
+
+
+def _resolve_attack_class(library: str):
+    """Resolve an attack library by module name.
+
+    Convention: the module must export an ``Attack`` class with:
+    - ``from_spec(spec_dict, seed_payloads) -> Attack``
+    - ``is_conversational: bool`` property
+    - ``async execute(ctx) -> AttackResult``
+    """
+    try:
+        mod = importlib.import_module(library)
+    except ImportError:
+        raise ImportError(_MISSING_LIBRARY_MSG.format(library=library)) from None
+    attack_cls = getattr(mod, "Attack", None)
+    if attack_cls is None:
+        raise ImportError(
+            f"Module '{library}' has no 'Attack' class. "
+            f"Attack libraries must export an Attack class with from_spec() and execute()."
+        )
+    return attack_cls
+
 
 def _resolve_system_message(suite_name: str) -> str:
     module_path = suite_name if "." in suite_name else f"suites.{suite_name}"
@@ -148,10 +174,7 @@ def _print_results_table(
 async def _injection_reached_agent(
     control_url: str, run_id: str, eval_id: str, injections: dict[str, str]
 ) -> list[str]:
-    """Return channels through which an injection payload reached the agent.
-
-    Checks both the agent input (prompt) and function call results (tool output).
-    """
+    """Return channels through which an injection payload reached the agent."""
     async with httpx.AsyncClient(timeout=30.0) as client:
         eval_resp, calls_resp = await asyncio.gather(
             client.get(f"{control_url}/runs/{run_id}/evaluations/{eval_id}"),
@@ -180,27 +203,50 @@ async def _injection_reached_agent(
     return hits
 
 
-async def run_task(
+async def _run_single_eval(
     control_url: str,
     agent_client: AgentClient,
     run_id: str,
     user_task_id: str,
     injection_task_id: str | None,
-    injections: dict[str, str],
+    injection,
 ) -> dict:
+    """Execute one complete evaluation cycle (create → send → grade).
+
+    The ``injection`` parameter is an Injection-protocol object (probes dict,
+    prompt content) or a plain dict for backward compat.
+    """
+    probes: dict[str, str] = {}
+    prompt_content: str | None = None
+    prompt_mode: str = "append"
+
+    if hasattr(injection, "probes"):
+        probes = injection.probes or {}
+        prompt_content = injection.prompt_content
+        prompt_mode = getattr(injection, "prompt_mode", "append")
+    elif isinstance(injection, dict):
+        probes = injection
+
     async with httpx.AsyncClient(timeout=300.0) as client:
+        eval_body: dict = {
+            "user_task_id": user_task_id,
+            "injection_task_id": injection_task_id,
+            "injections": probes,
+        }
         eval_resp = await client.post(
             f"{control_url}/runs/{run_id}/evaluations",
-            json={
-                "user_task_id": user_task_id,
-                "injection_task_id": injection_task_id,
-                "injections": injections,
-            },
+            json=eval_body,
         )
         eval_resp.raise_for_status()
         eval_data = eval_resp.json()
         eval_id = eval_data["id"]
         prompt = eval_data["prompt"]
+
+        if prompt_content:
+            if prompt_mode == "append":
+                prompt = f"{prompt}\n\n{prompt_content}"
+            elif prompt_mode == "prepend":
+                prompt = f"{prompt_content}\n\n{prompt}"
 
         agent_output = await agent_client.send_task(prompt)
 
@@ -212,11 +258,229 @@ async def run_task(
 
         grade_resp = await client.post(f"{control_url}/runs/{run_id}/evaluations/{eval_id}/grade")
         grade_resp.raise_for_status()
-        result = grade_resp.json()
-        result["eval_id"] = eval_id
-        result["prompt"] = prompt
-        result["agent_output"] = agent_output
-        return result
+        grade = grade_resp.json()
+
+        calls_resp = await client.get(
+            f"{control_url}/runs/{run_id}/evaluations/{eval_id}/function-calls"
+        )
+        calls = calls_resp.json() if calls_resp.status_code == 200 else []
+
+    return {
+        "eval_id": eval_id,
+        "prompt": prompt,
+        "agent_output": agent_output,
+        "utility": grade["utility"],
+        "security": grade["security"],
+        "function_calls": calls,
+    }
+
+
+def _build_target_context(suite: YAMLTaskSuite, user_task_id: str):
+    """Build TargetContext for the attacker LLM."""
+    tool_defs = [t.model_dump() for t in suite.get_tool_definitions()]
+    system_prompt = ""
+    try:
+        mod = importlib.import_module(f"suites.{suite.name}" if "." not in suite.name else suite.name)
+        system_prompt = getattr(mod, "SYSTEM_MESSAGE", "")
+    except (ImportError, AttributeError):
+        pass
+
+    user_prompt = suite.user_tasks[user_task_id].prompt if user_task_id in suite.user_tasks else ""
+
+    env_summary = ""
+    try:
+        env_schema = suite.environment_type.model_json_schema()
+        fields = env_schema.get("properties", {})
+        env_parts = []
+        for fname, finfo in fields.items():
+            ftype = finfo.get("type", "?")
+            env_parts.append(f"  {fname}: {ftype}")
+        env_summary = "Fields:\n" + "\n".join(env_parts) if env_parts else ""
+    except Exception:
+        pass
+
+    return tool_defs, system_prompt, user_prompt, env_summary
+
+
+async def run_task(
+    control_url: str,
+    agent_client: AgentClient,
+    run_id: str,
+    suite: YAMLTaskSuite,
+    user_task_id: str,
+    injection_task_id: str | None,
+    injections: dict[str, str],
+    attacker_config: dict | None = None,
+    dry_run_cache: dict | None = None,
+    strategy_override: str | None = None,
+) -> dict:
+    attack_spec = None
+    if injection_task_id and injection_task_id in suite.injection_tasks:
+        attack_spec = suite.injection_tasks[injection_task_id].attack_spec
+
+    if strategy_override and injection_task_id:
+        attack_spec = attack_spec or {}
+        attack_spec = {**attack_spec, "strategy": strategy_override}
+
+    if attack_spec and attack_spec.get("strategy") not in (None, "static"):
+        library = attack_spec.get("library", "redteam_attacks")
+        attack_cls = _resolve_attack_class(library)
+
+        # Import types from the resolved library
+        types_mod = importlib.import_module(f"{library}.types")
+        EvalResult = types_mod.EvalResult  # noqa: N806
+        Injection = types_mod.Injection  # noqa: N806
+        AttackContext = types_mod.AttackContext  # noqa: N806
+        TargetContext = types_mod.TargetContext  # noqa: N806
+
+        strategy_name = attack_spec["strategy"]
+
+        # Merge attacker LLM config: YAML (per-probe) < CLI (fallback/override)
+        yaml_attacker = attack_spec.get("attacker_llm_config", {})
+        cli_attacker = attacker_config or {}
+        attacker_model = cli_attacker.get("attacker_model") or yaml_attacker.get("model")
+        attacker_base_url = cli_attacker.get("attacker_base_url") or yaml_attacker.get("base_url")
+        attacker_api_key = cli_attacker.get("attacker_api_key")
+
+        # --- #7: Early validation ---
+        if strategy_name in ("pair", "tap", "crescendo") and not attacker_model:
+            raise click.ClickException(
+                f"Strategy '{strategy_name}' requires an attacker model. "
+                f"Set --attacker-model or add attacker_llm_config.model in the probe's strategy block."
+            )
+
+        seed_payloads = attack_spec.get("seed_payloads") or list(injections.values()) or []
+        attack = attack_cls.from_spec(attack_spec, seed_payloads=seed_payloads)
+
+        # --- #2: Validate multi-turn support for conversational strategies ---
+        if attack.is_conversational and not agent_client.supports_multi_turn:
+            raise click.ClickException(
+                f"Strategy '{strategy_name}' requires multi-turn conversation support, "
+                f"but {type(agent_client).__name__} does not implement send_message. "
+                f"Use a protocol that supports multi-turn (ogx, openai, a2a)."
+            )
+
+        eval_id_log: list[str] = []
+
+        async def _eval_callback(inj) -> EvalResult:
+            raw = await _run_single_eval(
+                control_url, agent_client, run_id,
+                user_task_id, injection_task_id, inj,
+            )
+            eval_id_log.append(raw["eval_id"])
+            return EvalResult(
+                agent_output=raw.get("agent_output", ""),
+                function_calls=raw.get("function_calls", []),
+                security_passed=raw.get("security", True),
+                utility_passed=raw.get("utility", True),
+            )
+
+        converse_callback = None
+        if agent_client.supports_multi_turn:
+            async def converse_callback(message: str, state=None) -> tuple[str, any]:
+                return await agent_client.send_message(message, state)
+
+        tool_defs, system_prompt, user_prompt, env_summary = _build_target_context(suite, user_task_id)
+
+        # Dry-run
+        dry_run_trace: list[dict] = []
+        if attack_spec.get("dry_run", True):
+            if dry_run_cache is not None and user_task_id in dry_run_cache:
+                dry_run_trace = dry_run_cache[user_task_id]
+            else:
+                try:
+                    dry_result = await _eval_callback(Injection(probes={}))
+                    dry_run_trace = dry_result.function_calls
+                except Exception:
+                    pass
+                if dry_run_cache is not None:
+                    dry_run_cache[user_task_id] = dry_run_trace
+
+        target = TargetContext(
+            tools=tool_defs,
+            system_prompt=system_prompt,
+            user_task_prompt=user_prompt,
+            environment_summary=env_summary,
+            dry_run_trace=dry_run_trace,
+        )
+
+        ctx = AttackContext(
+            evaluate_injection=_eval_callback,
+            converse=converse_callback,
+            tool_names=suite.get_tool_names(),
+            user_task_id=user_task_id,
+            injection_task_id=injection_task_id or "",
+            target=target,
+            attacker_model=attacker_model,
+            attacker_base_url=attacker_base_url,
+            attacker_api_key=attacker_api_key,
+        )
+
+        # --- #1: Wrapper eval for conversational strategies ---
+        wrapper_eval_id = None
+        if attack.is_conversational:
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                eval_resp = await client.post(
+                    f"{control_url}/runs/{run_id}/evaluations",
+                    json={
+                        "user_task_id": user_task_id,
+                        "injection_task_id": injection_task_id,
+                        "injections": injections,
+                    },
+                )
+                eval_resp.raise_for_status()
+                wrapper_eval_id = eval_resp.json()["id"]
+
+        attack_result = await attack.execute(ctx)
+
+        last_eval = attack_result.evaluations[-1] if attack_result.evaluations else None
+
+        # --- #3: Grading authority ---
+        if attack.is_conversational and wrapper_eval_id:
+            # Grade via MiDojo verifier (authoritative for conversational)
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                await client.post(
+                    f"{control_url}/runs/{run_id}/evaluations/{wrapper_eval_id}/complete",
+                    json={"agent_output": last_eval.agent_output if last_eval else ""},
+                )
+                grade_resp = await client.post(
+                    f"{control_url}/runs/{run_id}/evaluations/{wrapper_eval_id}/grade",
+                )
+                grade_resp.raise_for_status()
+                grade = grade_resp.json()
+            any_security_broken = grade["security"]
+        else:
+            # For iterative: each evaluate_injection call is graded by MiDojo
+            any_security_broken = any(
+                e.security_passed for e in attack_result.evaluations
+            )
+
+        return {
+            "utility": last_eval.utility_passed if last_eval else False,
+            "security": any_security_broken,
+            "eval_id": wrapper_eval_id or "attack-multi",
+            "prompt": f"({strategy_name}, {len(attack_result.evaluations)} evals)",
+            "agent_output": last_eval.agent_output if last_eval else "",
+            "attack_result": attack_result,
+            "eval_id_log": eval_id_log,
+            "is_conversational": attack.is_conversational,
+        }
+
+    # --- Static path (unchanged behavior) ---
+    try:
+        from redteam_attacks.types import Injection
+    except ImportError:
+        # No attack library — use plain dict injection (original behavior)
+        return await _run_single_eval(
+            control_url, agent_client, run_id,
+            user_task_id, injection_task_id, injections,
+        )
+
+    inj = Injection(probes=injections)
+    return await _run_single_eval(
+        control_url, agent_client, run_id,
+        user_task_id, injection_task_id, inj,
+    )
 
 
 async def run_benchmark(
@@ -229,6 +493,8 @@ async def run_benchmark(
     user_task_ids: list[str] | None,
     injection_task_ids: list[str] | None,
     logdir: Path,
+    attacker_config: dict | None = None,
+    strategy_override: str | None = None,
 ) -> None:
     user_tasks_to_run = user_task_ids or list(suite.user_tasks.keys())
     injection_tasks_to_run: list[str]
@@ -237,7 +503,6 @@ async def run_benchmark(
     elif user_task_ids is None:
         injection_tasks_to_run = list(suite.injection_tasks.keys())
     else:
-        # -ut without -it: utility-only run
         injection_tasks_to_run = []
 
     suite_info = await _fetch_suite_info(control_url)
@@ -248,12 +513,16 @@ async def run_benchmark(
 
     utility_results: dict[TaskPair, bool] = {}
     security_results: dict[TaskPair, bool] = {}
+    dry_run_cache: dict[str, list] = {}
 
     it_ids_to_run: list[str | None] = injection_tasks_to_run or [None]
     for ut_id in user_tasks_to_run:
         for it_id in it_ids_to_run:
             injections = suite.get_probes_for_task(it_id) if it_id else {}
-            result = await run_task(control_url, agent_client, run_id, ut_id, it_id, injections)
+            result = await run_task(
+                control_url, agent_client, run_id, suite, ut_id, it_id,
+                injections, attacker_config, dry_run_cache, strategy_override,
+            )
             utility_results[TaskPair(ut_id, it_id or "")] = result["utility"]
             eval_id = result["eval_id"]
             eval_url = f"{control_url}/runs/{run_id}/evaluations/{eval_id}"
@@ -263,15 +532,58 @@ async def run_benchmark(
             _print_agent_text("agent output", result["agent_output"])
             console.print("    ", _utility(result["utility"]))
             if it_id:
-                hit_channels = await _injection_reached_agent(control_url, run_id, eval_id, injections)
-                if hit_channels:
-                    security_results[TaskPair(ut_id, it_id)] = result["security"]
-                    counts = Counter(hit_channels)
-                    parts = [f"{ch} x{n}" if n > 1 else ch for ch, n in counts.items()]
-                    via = ", ".join(parts)
-                    console.print("    ", _security(result["security"]), Text(f"  (injection in {via})", style="dim"))
+                if "attack_result" in result:
+                    ar = result["attack_result"]
+                    sec = result["security"]
+                    n_evals = len(ar.evaluations)
+                    strategy_name = ar.strategy_metadata.get("strategy", "?")
+
+                    # --- #4: Skip reachability for conversational ---
+                    if result.get("is_conversational"):
+                        security_results[TaskPair(ut_id, it_id)] = sec
+                        console.print(
+                            "    ",
+                            _security(sec),
+                            Text(f"  ({n_evals} evals via {strategy_name}, multi-turn)", style="dim"),
+                        )
+                    else:
+                        reached_any = False
+                        eval_ids = result.get("eval_id_log", [])
+                        for i, ev in enumerate(ar.evaluations):
+                            if ev.injection and i < len(eval_ids):
+                                payloads = dict(ev.injection.probes or {})
+                                if ev.injection.prompt_content:
+                                    payloads["__prompt"] = ev.injection.prompt_content
+                                if payloads:
+                                    hits = await _injection_reached_agent(
+                                        control_url, run_id, eval_ids[i], payloads,
+                                    )
+                                    if hits:
+                                        reached_any = True
+
+                        if reached_any:
+                            security_results[TaskPair(ut_id, it_id)] = sec
+                            console.print(
+                                "    ",
+                                _security(sec),
+                                Text(f"  ({n_evals} evals via {strategy_name})", style="dim"),
+                            )
+                        else:
+                            console.print(
+                                "    ",
+                                Text(f"N/A ({n_evals} evals via {strategy_name}, payload not in any result)",
+                                     style="dim"),
+                            )
                 else:
-                    console.print("    ", Text("N/A (payload not in any result)", style="dim"))
+                    hit_channels = await _injection_reached_agent(control_url, run_id, eval_id, injections)
+                    if hit_channels:
+                        security_results[TaskPair(ut_id, it_id)] = result["security"]
+                        counts = Counter(hit_channels)
+                        parts = [f"{ch} x{n}" if n > 1 else ch for ch, n in counts.items()]
+                        via = ", ".join(parts)
+                        console.print("    ", _security(result["security"]), Text(f"  (injection in {via})", style="dim"))
+                    else:
+                        console.print("    ", Text("N/A (payload not in any result)", style="dim"))
 
     console.print()
 
@@ -321,6 +633,24 @@ async def run_benchmark(
     help="Model ID for the Responses API (ogx and openai protocols). "
          "Env: MODEL_NAME. Example: gpt-4o-mini, ollama/qwen3.5:2b.",
 )
+@click.option(
+    "--attacker-model", default=None, envvar="ATTACKER_MODEL",
+    help="Model for the attacker LLM in adaptive strategies (PAIR, TAP, Crescendo). "
+         "Env: ATTACKER_MODEL.",
+)
+@click.option(
+    "--attacker-base-url", default=None, envvar="ATTACKER_BASE_URL",
+    help="Base URL for the attacker LLM API. Env: ATTACKER_BASE_URL.",
+)
+@click.option(
+    "--attacker-api-key", default=None, envvar="ATTACKER_API_KEY",
+    help="API key for the attacker LLM. Env: ATTACKER_API_KEY.",
+)
+@click.option(
+    "--strategy", "strategy_override", default=None,
+    help="Override attack strategy for all injection tasks (e.g. pair, crescendo). "
+         "Probe payloads become seed payloads for the iterative strategy.",
+)
 def main(
     control_url: str,
     agent_url: str,
@@ -333,6 +663,10 @@ def main(
     ogx_shield: str | None,
     mcp_server_label: str | None,
     model_name: str | None,
+    attacker_model: str | None,
+    attacker_base_url: str | None,
+    attacker_api_key: str | None,
+    strategy_override: str | None,
 ) -> None:
     for module in modules_to_load:
         importlib.import_module(module)
@@ -366,6 +700,14 @@ def main(
     else:
         agent_client = SimpleHTTPAgentClient(agent_url)
 
+    attacker_cfg = None
+    if attacker_model:
+        attacker_cfg = {
+            "attacker_model": attacker_model,
+            "attacker_base_url": attacker_base_url,
+            "attacker_api_key": attacker_api_key,
+        }
+
     asyncio.run(
         run_benchmark(
             control_url=control_url,
@@ -377,6 +719,8 @@ def main(
             user_task_ids=list(user_tasks) if user_tasks else None,
             injection_task_ids=list(injection_tasks) if injection_tasks else None,
             logdir=logdir,
+            attacker_config=attacker_cfg,
+            strategy_override=strategy_override,
         )
     )
 

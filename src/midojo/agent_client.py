@@ -14,6 +14,20 @@ class AgentClient(abc.ABC):
         """Send a task prompt to the agent and return its final text output."""
         ...
 
+    @property
+    def supports_multi_turn(self) -> bool:
+        return type(self).send_message is not AgentClient.send_message
+
+    async def send_message(self, message: str, previous_response_id: str | None = None) -> tuple[str, str | None]:
+        """Send a message in a multi-turn conversation.
+
+        Returns (output_text, response_id) where response_id can be passed
+        to the next call to maintain conversation state. Default implementation
+        falls back to send_task (no conversation state).
+        """
+        output = await self.send_task(message)
+        return output, None
+
 
 class SimpleHTTPAgentClient(AgentClient):
     """Sends a prompt via HTTP POST and returns the response text.
@@ -86,6 +100,51 @@ class A2AAgentClient(AgentClient):
         finally:
             await client.close()
 
+    async def send_message(self, message: str, previous_response_id: str | None = None) -> tuple[str, str | None]:
+        from a2a.client import ClientConfig, create_client
+        from a2a.types import Message, Part, Role, SendMessageRequest
+
+        config = ClientConfig(
+            httpx_client=httpx.AsyncClient(timeout=self.timeout),
+        )
+        client = await create_client(self.agent_url, client_config=config)
+        try:
+            msg = Message(
+                role=Role.ROLE_USER,
+                message_id=uuid.uuid4().hex,
+                parts=[Part(text=message)],
+            )
+            if previous_response_id:
+                msg.context_id = previous_response_id
+
+            request = SendMessageRequest(message=msg)
+
+            result_text = ""
+            context_id = previous_response_id
+            async for event in client.send_message(request):
+                payload_type = event.WhichOneof("payload")
+                if payload_type == "message":
+                    for part in event.message.parts:
+                        if part.text:
+                            result_text += part.text
+                    if event.message.context_id:
+                        context_id = event.message.context_id
+                elif payload_type == "task":
+                    if event.task.context_id:
+                        context_id = event.task.context_id
+                    for artifact in event.task.artifacts:
+                        for part in artifact.parts:
+                            if part.text:
+                                result_text += part.text
+                elif payload_type == "artifact_update":
+                    for part in event.artifact_update.artifact.parts:
+                        if part.text:
+                            result_text = part.text
+
+            return result_text, context_id
+        finally:
+            await client.close()
+
 
 class OpenAIResponsesAgentClient(AgentClient):
     """Calls any OpenAI Responses API endpoint (OpenAI cloud, Llama Stack, vLLM, etc.).
@@ -139,6 +198,30 @@ class OpenAIResponsesAgentClient(AgentClient):
         )
         return response.output_text
 
+    async def send_message(self, message: str, previous_response_id: str | None = None) -> tuple[str, str | None]:
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key, timeout=self.timeout)
+        kwargs: dict = dict(
+            model=self.model,
+            input=message,
+            instructions=self.instructions,
+            tools=[
+                {
+                    "type": "mcp",
+                    "server_label": self.mcp_server_label,
+                    "server_url": self.mcp_server_url,
+                    "require_approval": "never",
+                },
+            ],
+            stream=False,
+        )
+        if previous_response_id:
+            kwargs["previous_response_id"] = previous_response_id
+
+        response = await client.responses.create(**kwargs)
+        return response.output_text, response.id
+
 
 class OGXResponsesClient(AgentClient):
     """Calls the OGX (Llama Stack) Responses API directly.
@@ -190,6 +273,32 @@ class OGXResponsesClient(AgentClient):
 
         response = client.responses.create(**kwargs)
         return response.output_text
+
+    async def send_message(self, message: str, previous_response_id: str | None = None) -> tuple[str, str | None]:
+        from ogx_client import OgxClient
+
+        client = OgxClient(base_url=self.ogx_url, timeout=self.timeout)
+        kwargs: dict = dict(
+            model=self.model,
+            input=message,
+            instructions=self.instructions,
+            tools=[
+                {
+                    "type": "mcp",
+                    "server_label": self.mcp_server_label,
+                    "server_url": self.mcp_server_url,
+                    "require_approval": "never",
+                },
+            ],
+            stream=False,
+        )
+        if previous_response_id:
+            kwargs["previous_response_id"] = previous_response_id
+        if self.shield_id:
+            kwargs["guardrails"] = [self.shield_id]
+
+        response = client.responses.create(**kwargs)
+        return response.output_text, response.id
 
 
 class PIAgentClient(AgentClient):
