@@ -27,11 +27,13 @@ suites = [
     "openai>=1.0",
 ]
 shell = [
-    # openshell SDK must be installed separately — it's a Maturin (Rust+Python)
-    # project that requires z3 and a Rust toolchain:
-    #   brew install z3
-    #   pip install -e /path/to/OpenShell
+    # OpenShell SDK for the `openshell` backend/protocol. Prebuilt wheels are
+    # published to the index, so no Rust toolchain or local checkout is needed.
+    "openshell>=0.0.105",
     "grpcio>=1.60",
+    # OpenShell's generated protobuf code targets the 6.31.x runtime; the base
+    # `protobuf>=5.29` pin is too old for it, so tighten it when installing shell.
+    "protobuf>=6.31.1",
 ]
 dev = [
     "pytest>=8.0.2",
