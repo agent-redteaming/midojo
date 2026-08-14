@@ -192,7 +192,7 @@ class OpenShellBackend:
         # a local model server) without needing a registered provider.
         self._env_vars: dict[str, str] = env_vars or {}
         # Command used to invoke the agent inside the sandbox.
-        # Analogous to --agent-url for other protocols: this is how midojo calls
+        # Analogous to --agent-uri for other protocols: this is how midojo calls
         # the user's agent, expressed as a command inside the sandbox image.
         self._agent_command: list[str] | None = agent_command
         # Seed-file templates from the suite's `state` (probe placeholders intact).

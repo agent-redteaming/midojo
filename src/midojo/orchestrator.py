@@ -85,7 +85,7 @@ async def _create_run(control_url: str) -> str:
 def _print_banner(
     suite_name: str,
     suite_info: dict,
-    agent_url: str,
+    agent_uri: str,
     protocol: str,
     user_tasks_to_run: list[str],
     injection_tasks_to_run: list[str],
@@ -94,7 +94,7 @@ def _print_banner(
     lines.append("Suite       ", style="dim")
     lines.append(f"{suite_name}\n")
     lines.append("Agent       ", style="dim")
-    lines.append(f"{agent_url} ({protocol})\n")
+    lines.append(f"{agent_uri} ({protocol})\n")
     lines.append("Tasks       ", style="dim")
     if injection_tasks_to_run:
         lines.append(f"{len(user_tasks_to_run)} user x {len(injection_tasks_to_run)} injection\n")
@@ -269,7 +269,7 @@ async def run_task(
 async def run_benchmark(
     control_url: str,
     agent_client: AgentClient,
-    agent_url: str,
+    agent_uri: str,
     protocol: str,
     suite: YAMLTaskSuite,
     suite_name: str,
@@ -289,7 +289,7 @@ async def run_benchmark(
         injection_tasks_to_run = []
 
     suite_info = await _fetch_suite_info(control_url)
-    _print_banner(suite_name, suite_info, agent_url, protocol, user_tasks_to_run, injection_tasks_to_run)
+    _print_banner(suite_name, suite_info, agent_uri, protocol, user_tasks_to_run, injection_tasks_to_run)
 
     run_id = await _create_run(control_url)
     console.print(f"  [dim]run[/dim] [cyan underline]{run_id}[/cyan underline]\n")
@@ -368,7 +368,7 @@ async def run_benchmark(
 @click.command()
 @click.option("--control-url", default="http://localhost:8080", help="URL of the benchmark MCP server control plane.")
 @click.option(
-    "--agent-url",
+    "--agent-uri",
     required=True,
     help="Where to reach the agent. A URL for http/a2a/ogx/openai; a local path to the "
     "agent dir for pi; the OpenShell gateway name for openshell.",
@@ -390,7 +390,7 @@ async def run_benchmark(
     required=True,
     help="Agent communication protocol. "
     "API keys are read from env vars: OPENAI_API_KEY (openai), OGX_CLIENT_API_KEY (ogx). "
-    "For openshell: pass the gateway name via --agent-url.",
+    "For openshell: pass the gateway name via --agent-uri.",
 )
 @click.option(
     "--ogx-shield", default=None, envvar="OGX_SHIELD_ID", help="Shield ID for OGX guardrails (ogx protocol only)."
@@ -411,7 +411,7 @@ async def run_benchmark(
 )
 def main(
     control_url: str,
-    agent_url: str,
+    agent_uri: str,
     suite_name: str,
     user_tasks: tuple[str, ...],
     injection_tasks: tuple[str, ...],
@@ -434,17 +434,17 @@ def main(
 
         if not isinstance(suite.backend, OpenShellBackend):
             raise click.UsageError("--protocol openshell requires a suite with 'backend: {type: openshell, ...}'")
-        suite.backend.configure(cluster=agent_url, control_url=control_url)
+        suite.backend.configure(cluster=agent_uri, control_url=control_url)
         agent_client = OpenShellAgentClient(backend=suite.backend)
         lifecycle_backend = suite.backend
     elif protocol == "a2a":
-        agent_client = A2AAgentClient(agent_url)
+        agent_client = A2AAgentClient(agent_uri)
     elif protocol == "pi":
-        agent_client = PIAgentClient(agent_url, control_url)
+        agent_client = PIAgentClient(agent_uri, control_url)
     elif protocol == "ogx":
         system_message = _resolve_system_message(suite_name)
         agent_client = OGXResponsesClient(
-            ogx_url=agent_url,
+            ogx_url=agent_uri,
             model=model_name or os.environ.get("MODEL_NAME", "litellm/llama-scout-17b"),
             mcp_server_url=os.environ.get("MCP_SERVER_URL", "http://localhost:8082/mcp"),
             mcp_server_label=mcp_server_label or suite_name,
@@ -454,7 +454,7 @@ def main(
     elif protocol == "openai":
         system_message = _resolve_system_message(suite_name)
         agent_client = OpenAIResponsesAgentClient(
-            base_url=agent_url,
+            base_url=agent_uri,
             model=model_name or os.environ.get("MODEL_NAME", "gpt-4o-mini"),
             mcp_server_url=os.environ.get("MCP_SERVER_URL", "http://localhost:8082/mcp"),
             mcp_server_label=mcp_server_label or suite_name,
@@ -462,13 +462,13 @@ def main(
             instructions=system_message,
         )
     else:
-        agent_client = SimpleHTTPAgentClient(agent_url)
+        agent_client = SimpleHTTPAgentClient(agent_uri)
 
     asyncio.run(
         run_benchmark(
             control_url=control_url,
             agent_client=agent_client,
-            agent_url=agent_url,
+            agent_uri=agent_uri,
             protocol=protocol,
             suite=suite,
             suite_name=suite_name,
