@@ -26,7 +26,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-
 # ---------------------------------------------------------------------------
 # Message patterns (derived from openshell-ocsf/src/format/shorthand.rs)
 # ---------------------------------------------------------------------------
@@ -61,27 +60,28 @@ _FINDING_PATTERN = re.compile(
 # Parsed event types
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class NetworkEvent:
-    action: str      # "ALLOWED" or "DENIED"
-    process: str     # "curl(1618)"
-    host: str        # "audit.ext-log.com"
+    action: str  # "ALLOWED" or "DENIED"
+    process: str  # "curl(1618)"
+    host: str  # "audit.ext-log.com"
     port: int
-    endpoint: str    # "audit.ext-log.com:443"
+    endpoint: str  # "audit.ext-log.com:443"
     raw: str
 
 
 @dataclass
 class HttpEvent:
-    action: str      # "ALLOWED" or "DENIED"
-    method: str      # "GET", "POST", "PUT", etc.
+    action: str  # "ALLOWED" or "DENIED"
+    method: str  # "GET", "POST", "PUT", etc.
     url: str
     raw: str
 
 
 @dataclass
 class ProcessEvent:
-    event_type: str   # "launch" or "terminate"
+    event_type: str  # "launch" or "terminate"
     binary: str
     pid: int
     command: str | None
@@ -127,8 +127,12 @@ def _parse_message(msg: str) -> NetworkEvent | HttpEvent | ProcessEvent | Findin
     if m:
         action, process, host, port = m.groups()
         return NetworkEvent(
-            action=action.upper(), process=process, host=host,
-            port=int(port), endpoint=f"{host}:{port}", raw=msg,
+            action=action.upper(),
+            process=process,
+            host=host,
+            port=int(port),
+            endpoint=f"{host}:{port}",
+            raw=msg,
         )
 
     m = _HTTP_PATTERN.search(msg)
@@ -145,8 +149,12 @@ def _parse_message(msg: str) -> NetworkEvent | HttpEvent | ProcessEvent | Findin
     if m:
         binary, pid, exit_code = m.groups()
         return ProcessEvent(
-            event_type="terminate", binary=binary, pid=int(pid), command=None,
-            exit_code=int(exit_code) if exit_code is not None else None, raw=msg,
+            event_type="terminate",
+            binary=binary,
+            pid=int(pid),
+            command=None,
+            exit_code=int(exit_code) if exit_code is not None else None,
+            raw=msg,
         )
 
     m = _FINDING_PATTERN.search(msg)
@@ -169,8 +177,7 @@ def parse_ocsf_lines(lines: list[str]) -> OCSFEvents:
         elif isinstance(event, HttpEvent):
             (result.http_allowed if event.action == "ALLOWED" else result.http_blocked).append(event)
         elif isinstance(event, ProcessEvent):
-            (result.processes_launched if event.event_type == "launch"
-             else result.processes_terminated).append(event)
+            (result.processes_launched if event.event_type == "launch" else result.processes_terminated).append(event)
         elif isinstance(event, FindingEvent):
             result.findings.append(event)
     return result

@@ -37,7 +37,6 @@ from midojo.openshell_logs import OCSFEvents, parse_ocsf_lines
 from midojo.probes import substitute_probes
 from midojo.types import Environment
 
-
 # ---------------------------------------------------------------------------
 _COMMUNITY_REGISTRY = "ghcr.io/nvidia/openshell-community/sandboxes"
 
@@ -52,6 +51,7 @@ def _resolve_image(image: str) -> str:
     Override the registry prefix with ``OPENSHELL_COMMUNITY_REGISTRY``.
     """
     import os
+
     if "/" in image or ":" in image:
         return image
     registry = os.environ.get("OPENSHELL_COMMUNITY_REGISTRY", _COMMUNITY_REGISTRY)
@@ -110,10 +110,10 @@ class OpenShellEnvironment(Environment):
     commands_executed: list[CommandRecord] = Field(default_factory=list)
 
     # OCSF-derived fields (kernel-verified; also in observations["openshell"])
-    network_calls_allowed: list[str] = Field(default_factory=list)   # "host:port"
+    network_calls_allowed: list[str] = Field(default_factory=list)  # "host:port"
     network_calls_blocked: list[str] = Field(default_factory=list)
-    processes_launched: list[str] = Field(default_factory=list)       # binary names
-    security_findings: list[str] = Field(default_factory=list)        # finding titles
+    processes_launched: list[str] = Field(default_factory=list)  # binary names
+    security_findings: list[str] = Field(default_factory=list)  # finding titles
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +182,7 @@ class OpenShellBackend:
         # Live sandbox state — set by setup(), cleared by teardown()
         self._client: Any = None
         self._ref: Any = None
-        self._pb2: Any = None   # openshell_pb2, stored at setup() to avoid repeated lazy imports
+        self._pb2: Any = None  # openshell_pb2, stored at setup() to avoid repeated lazy imports
         self._start_ms: int = 0
         self._cached_ocsf: OCSFEvents | None = None
         self._seeded_workspace: dict[str, str] = {}  # injected file contents (pre_env.workspace_files)
@@ -302,13 +302,10 @@ class OpenShellBackend:
                 ),
                 timeout=10.0,
             )
-            messages = [
-                log_line.message
-                for log_line in logs_resp.logs
-                if log_line.level.upper() == "OCSF"
-            ]
+            messages = [log_line.message for log_line in logs_resp.logs if log_line.level.upper() == "OCSF"]
         except Exception as exc:
             import logging
+
             logging.getLogger(__name__).warning(
                 "OCSF log fetch failed — security predicates will degrade to False: %s", exc
             )
@@ -368,6 +365,7 @@ class OpenShellBackend:
                 self._client.wait_deleted(self._ref.name, timeout_seconds=30.0)
             except Exception as exc:
                 import logging
+
                 logging.getLogger(__name__).warning("Sandbox teardown failed: %s", exc)
         if self._client is not None:
             try:

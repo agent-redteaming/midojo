@@ -4,8 +4,12 @@ import abc
 import asyncio
 import os
 import uuid
+from typing import TYPE_CHECKING
 
 import httpx
+
+if TYPE_CHECKING:
+    from midojo.openshell_backend import OpenShellBackend
 
 
 class AgentClient(abc.ABC):
@@ -250,7 +254,7 @@ class OpenShellAgentClient(AgentClient):
 
     def __init__(
         self,
-        backend: "OpenShellBackend",  # noqa: F821
+        backend: OpenShellBackend,
         *,
         timeout: float = 300.0,
     ) -> None:
