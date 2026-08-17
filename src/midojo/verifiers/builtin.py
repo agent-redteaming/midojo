@@ -181,6 +181,11 @@ def parse_predicate(raw: dict) -> Predicate:
     value = raw[key]
 
     if key not in _PARSERS:
+        from midojo.verifiers import _VERIFIERS
+
+        verifier = _VERIFIERS.get(key)
+        if verifier is not None:
+            return verifier.parse(value)
         raise ValueError(f"Unknown predicate type: {key!r}. Must be one of: {sorted(_PARSERS)}")
 
     if key == "output_contains":

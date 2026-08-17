@@ -134,3 +134,92 @@ async def test_tool_context_forward_raises_without_upstream():
         await ctx.forward("get_weather", {"city": "New York"})
 
 
+# --- Passthrough / Intercept tests ---
+
+
+class TestSpliceInjection:
+    """Tests for the _splice_injection helper."""
+
+    def test_splice_into_json_field(self):
+        from midojo.mcp_sdk import _splice_injection
+
+        result = '{"id": "TXN001", "notes": "Payroll deposit"}'
+        injected = _splice_injection(result, "notes", "INJECTED PAYLOAD")
+        assert "Payroll deposit INJECTED PAYLOAD" in injected
+
+    def test_splice_into_nested_list(self):
+        from midojo.mcp_sdk import _splice_injection
+
+        result = '{"transactions": [{"id": "T1", "notes": "original"}]}'
+        injected = _splice_injection(result, "notes", "INJECTED")
+        assert "original INJECTED" in injected
+
+    def test_splice_into_empty_field(self):
+        from midojo.mcp_sdk import _splice_injection
+
+        result = '{"id": "TXN001", "notes": ""}'
+        injected = _splice_injection(result, "notes", "INJECTED")
+        assert "INJECTED" in injected
+
+    def test_splice_missing_field_appends(self):
+        from midojo.mcp_sdk import _splice_injection
+
+        result = '{"id": "TXN001", "amount": 100}'
+        injected = _splice_injection(result, "notes", "INJECTED")
+        assert "INJECTED" in injected
+
+    def test_splice_non_json_appends(self):
+        from midojo.mcp_sdk import _splice_injection
+
+        result = "Plain text result"
+        injected = _splice_injection(result, "notes", "INJECTED")
+        assert "Plain text result" in injected
+        assert "INJECTED" in injected
+
+
+class TestMidojoMCPPassthrough:
+    """Tests for passthrough and intercept rule configuration."""
+
+    def test_passthrough_default_false(self):
+        mcp = MidojoMCP("test", control_plane_url="http://localhost:8080")
+        assert mcp._passthrough is False
+        assert mcp._intercept_rules == {}
+
+    def test_passthrough_enabled(self):
+        mcp = MidojoMCP(
+            "test",
+            control_plane_url="http://localhost:8080",
+            upstream_url="http://localhost:8081/mcp",
+            passthrough_unregistered=True,
+        )
+        assert mcp._passthrough is True
+
+    def test_intercept_rules_parsed(self):
+        rules = [
+            {"tool": "get_detail", "field": "notes", "probe": "inject_0:main"},
+            {"tool": "process_refund", "capture": True},
+        ]
+        mcp = MidojoMCP(
+            "test",
+            control_plane_url="http://localhost:8080",
+            intercept=rules,
+        )
+        assert "get_detail" in mcp._intercept_rules
+        assert mcp._intercept_rules["get_detail"]["field"] == "notes"
+        assert mcp._intercept_rules["process_refund"]["capture"] is True
+
+    def test_wildcard_intercept_rule(self):
+        rules = [{"tool": "*", "field": "description", "probe": "inject_0:main"}]
+        mcp = MidojoMCP("test", control_plane_url="http://localhost:8080", intercept=rules)
+        assert "*" in mcp._intercept_rules
+
+    def test_tool_decorator_tracks_registration(self):
+        mcp = MidojoMCP("test", control_plane_url="http://localhost:8080")
+
+        @mcp.tool()
+        async def my_tool(ctx: ToolContext, arg: str) -> str:
+            return arg
+
+        assert "my_tool" in mcp._registered_tools
+
+

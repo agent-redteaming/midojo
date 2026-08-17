@@ -180,3 +180,4 @@ def parse_check(raw: dict) -> Check:
 # ---------------------------------------------------------------------------
 
 from midojo.verifiers import builtin as _builtin  # noqa: F401  -- registers the default verifier
+from midojo.verifiers import llm_judge as _llm_judge  # noqa: F401  -- registers the llm_judge verifier

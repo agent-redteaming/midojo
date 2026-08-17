@@ -71,6 +71,13 @@ class YAMLTaskSuite:
         probes = self.injection_tasks[task_id].probes
         return {f"{task_id}:{probe_id}": payload for probe_id, payload in probes.items()}
 
+    def get_raw_probes(self, task_id: str) -> dict[str, dict] | None:
+        """Return the raw probe definitions for an injection task, or None."""
+        for t in self._suite_raw.get("injection_tasks", []):
+            if t["id"] == task_id:
+                return t.get("probes", {})
+        return None
+
     def grade(
         self,
         user_task_id: str,

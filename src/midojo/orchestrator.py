@@ -5,6 +5,7 @@ import importlib
 import json
 import os
 from collections import Counter
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import NamedTuple
 
@@ -152,15 +153,19 @@ async def _injection_reached_agent(
 
     Checks both the agent input (prompt) and function call results (tool output).
     """
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        eval_resp, calls_resp = await asyncio.gather(
-            client.get(f"{control_url}/runs/{run_id}/evaluations/{eval_id}"),
-            client.get(f"{control_url}/runs/{run_id}/evaluations/{eval_id}/function-calls"),
-        )
-        eval_resp.raise_for_status()
-        calls_resp.raise_for_status()
-        eval_data = eval_resp.json()
-        calls = calls_resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            eval_resp, calls_resp = await asyncio.gather(
+                client.get(f"{control_url}/runs/{run_id}/evaluations/{eval_id}"),
+                client.get(f"{control_url}/runs/{run_id}/evaluations/{eval_id}/function-calls"),
+            )
+            eval_resp.raise_for_status()
+            calls_resp.raise_for_status()
+            eval_data = eval_resp.json()
+            calls = calls_resp.json()
+    except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ConnectError) as e:
+        console.print(f"    [dim](channel check skipped: {e})[/dim]")
+        return []
     payloads = [v for v in injections.values() if v]
     if not payloads:
         return []
@@ -168,14 +173,29 @@ async def _injection_reached_agent(
     def _normalize(text: str) -> str:
         return " ".join(text.split()).lower()
 
-    normalized_payloads = [_normalize(p) for p in payloads]
+    def _key_phrases(payload: str) -> list[str]:
+        """Extract short, matchable phrases from a payload (handles wrappers)."""
+        norm = _normalize(payload)
+        phrases = []
+        for line in payload.strip().split("\n"):
+            line = line.strip()
+            if len(line) > 20 and not line.startswith("<") and not line.startswith("Signed"):
+                phrases.append(_normalize(line))
+        if not phrases:
+            phrases.append(norm[:100])
+        return phrases
+
+    all_phrases = []
+    for p in payloads:
+        all_phrases.extend(_key_phrases(p))
+
     hits: list[str] = []
-    agent_input = eval_data.get("agent_input") or ""
-    if agent_input and any(p in _normalize(agent_input) for p in normalized_payloads):
+    agent_input = _normalize(eval_data.get("agent_input") or "")
+    if agent_input and any(phrase in agent_input for phrase in all_phrases):
         hits.append("agent input")
     for call in calls:
         result = _normalize(call.get("result", "") or "")
-        if any(p in result for p in normalized_payloads):
+        if any(phrase in result for phrase in all_phrases):
             hits.append(call["function"])
     return hits
 
@@ -279,36 +299,37 @@ async def run_benchmark(
             strategy_cfg = _resolve_strategy(injection_task, strategy_override, attacker_config)
 
             if strategy_cfg and it_id:
-                from midojo.attacks.pyrit_adapter import run_pyrit_strategy
+                from midojo.attacks.pyrit._dispatch import dispatch_strategy
+                from midojo.attacks.pyrit.context import StrategyContext
                 from midojo.yaml_task_suite import YAMLTaskSuite
 
                 seed_payload = ""
                 wrapper_fn = None
                 strategy_probe_id = "main"
+                converter_specs = None
                 if injection_task:
-                    probes_raw = suite._suite_raw.get("injection_tasks", [])
-                    for t in probes_raw:
-                        if t["id"] == it_id:
-                            raw_probes = t.get("probes", {})
-                            sp_id = YAMLTaskSuite.get_strategy_probe_id(raw_probes)
-                            if sp_id:
-                                strategy_probe_id = sp_id
-                                seed_payload = raw_probes[sp_id].get("payload", "")
-                            else:
-                                first_probe = next(iter(raw_probes.values()), {})
-                                seed_payload = first_probe.get("payload", "")
+                    raw_probes = suite.get_raw_probes(it_id)
+                    if raw_probes:
+                        sp_id = YAMLTaskSuite.get_strategy_probe_id(raw_probes)
+                        if sp_id:
+                            strategy_probe_id = sp_id
+                            seed_payload = raw_probes[sp_id].get("payload", "")
+                            converter_specs = raw_probes[sp_id].get("converters")
+                        else:
+                            first_probe = next(iter(raw_probes.values()), {})
+                            seed_payload = first_probe.get("payload", "")
+                            converter_specs = first_probe.get("converters")
 
-                            first_probe_raw = next(iter(raw_probes.values()), {})
-                            wrapper_id = first_probe_raw.get("wrapper") or first_probe_raw.get("attack_type")
-                            if wrapper_id and wrapper_id != "verbatim":
-                                from midojo.attacks import wrap_payload
+                        first_probe_raw = next(iter(raw_probes.values()), {})
+                        wrapper_id = first_probe_raw.get("wrapper") or first_probe_raw.get("attack_type")
+                        if wrapper_id and wrapper_id != "verbatim":
+                            from midojo.attacks import wrap_payload
 
-                                wrapper_fn = lambda payload, _w=wrapper_id: wrap_payload(payload, _w)
-                            break
+                            wrapper_fn = lambda payload, _w=wrapper_id: wrap_payload(payload, _w)
 
                 user_task_prompt = suite.user_tasks[ut_id].prompt if ut_id in suite.user_tasks else ""
 
-                result = await run_pyrit_strategy(
+                ctx = StrategyContext(
                     strategy_config=strategy_cfg,
                     control_url=control_url,
                     agent_client=agent_client,
@@ -324,8 +345,10 @@ async def run_benchmark(
                     attacker_model_override=attacker_config.get("attacker_model") if attacker_config else None,
                     attacker_base_url_override=attacker_config.get("attacker_base_url") if attacker_config else None,
                     attacker_api_key_override=attacker_config.get("attacker_api_key") if attacker_config else None,
+                    converter_specs=converter_specs,
                     logdir=str(logdir),
                 )
+                result = await dispatch_strategy(ctx)
             else:
                 result = await run_task(control_url, agent_client, run_id, ut_id, it_id, injections)
 
@@ -364,6 +387,28 @@ async def run_benchmark(
             {
                 "utility": {f"{k.user_task_id},{k.injection_task_id}": v for k, v in utility_results.items()},
                 "security": all_security,
+            },
+            f,
+            indent=2,
+        )
+
+    trace_files = [p.name for p in logdir.glob("strategy_*.json")]
+    manifest_file = logdir / "manifest.json"
+    with open(manifest_file, "w") as f:
+        json.dump(
+            {
+                "run_id": run_id,
+                "suite": suite_name,
+                "agent_url": agent_url,
+                "protocol": protocol,
+                "finished_at": datetime.now(UTC).isoformat(),
+                "strategy_override": strategy_override,
+                "attacker_model": attacker_config.get("attacker_model") if attacker_config else None,
+                "user_tasks": user_tasks_to_run,
+                "injection_tasks": injection_tasks_to_run,
+                "utility": {f"{k.user_task_id},{k.injection_task_id}": v for k, v in utility_results.items()},
+                "security": all_security,
+                "trace_files": sorted(trace_files),
             },
             f,
             indent=2,
@@ -416,7 +461,7 @@ async def run_benchmark(
 )
 @click.option(
     "--strategy", "strategy_override", default=None,
-    type=click.Choice(["pair", "tap", "crescendo", "red_team", "prompt_sending", "skeleton_key", "many_shot"]),
+    type=click.Choice(["pair", "tap", "crescendo", "red_team", "prompt_sending", "skeleton_key", "many_shot", "chunked_request", "multi_prompt", "gptfuzzer", "sequential", "adaptive", "fuzz"]),
     help="Override attack strategy for all injection tasks.",
 )
 def main(

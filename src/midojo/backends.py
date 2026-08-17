@@ -144,3 +144,37 @@ def _build_openshell_backend(suite_name: str, env_config: dict, backend_config: 
 
 register_backend("dict", _build_dict_backend)
 register_backend("openshell", _build_openshell_backend)
+
+
+class NoneEnvironmentBackend:
+    """No-op backend for black-box testing.
+
+    Used when ``backend: none`` is declared. No environment state is
+    provisioned — injections are placed directly into the user prompt
+    (via probe placeholders in the prompt text) rather than into
+    environment data read by tools.
+
+    This enables MiDojo's black-box tier: only the agent URL is needed,
+    with no fake MCP or data-source access required.
+    """
+
+    def __init__(self) -> None:
+        self._env_type: type[Environment] | None = None
+
+    @property
+    def environment_type(self) -> type[Environment]:
+        if self._env_type is None:
+            from pydantic import create_model
+
+            self._env_type = create_model("EmptyEnvironment", __base__=Environment)
+        return self._env_type
+
+    def provision(self, injections: dict[str, str]) -> Environment:
+        return self.environment_type.model_validate({})
+
+
+def _build_none_backend(suite_name: str, env_config: dict, backend_config: dict) -> EnvironmentBackend:
+    return NoneEnvironmentBackend()
+
+
+register_backend("none", _build_none_backend)

@@ -26,7 +26,11 @@ _FILE_SCHEME = "file:"
 
 
 class AttackLibrary:
-    """In-memory catalog of attack techniques and payload sets, keyed by id."""
+    """In-memory catalog of attack techniques and payload sets, keyed by id.
+
+    Supports both static wrappers (MiDojo-native) and strategy-backed techniques
+    (PyRIT) through the unified ``strategy_config`` field on ``AttackTechnique``.
+    """
 
     def __init__(
         self,
@@ -117,6 +121,15 @@ def resolve_source(
         if not path.is_file():
             raise ValueError(f"Payload set file not found: {path}")
         return load_payload_set_file(path)
+    if source.startswith("pyrit:"):
+        try:
+            from midojo.attacks.pyrit.datasets import register_pyrit_datasets
+
+            register_pyrit_datasets()
+        except ImportError:
+            raise ValueError(
+                f"PyRIT payload set '{source}' requires PyRIT. Install with: pip install midojo[pyrit]"
+            ) from None
     return library.get_payload_set(source)
 
 

@@ -30,9 +30,26 @@ from midojo.attacks.registry import (
 )
 from midojo.attacks.taxonomy import ASI_DESCRIPTIONS, ASI_DETAILS, ASICategory, parse_asi_category
 
+
+def __getattr__(name: str):
+    """Lazy-load converter functions to avoid importing PyRIT at module level."""
+    converter_attrs = {
+        "CONVERTER_REGISTRY",
+        "apply_converters",
+        "build_attack_converter_config",
+        "resolve_converter",
+        "resolve_converters",
+    }
+    if name in converter_attrs:
+        from midojo.attacks.pyrit import converters
+
+        return getattr(converters, name)
+    raise AttributeError(f"module 'midojo.attacks' has no attribute {name!r}")
+
 __all__ = [
     "ASI_DESCRIPTIONS",
     "ASI_DETAILS",
+    "CONVERTER_REGISTRY",
     "DEFAULT_LIBRARY",
     "ASICategory",
     "AttackContext",
@@ -50,8 +67,12 @@ __all__ = [
     "PayloadWrapper",
     "StaticAttackStrategy",
     "TargetContext",
+    "apply_converters",
+    "build_attack_converter_config",
     "load_payload_set_file",
     "parse_asi_category",
+    "resolve_converter",
+    "resolve_converters",
     "resolve_source",
     "wrap_payload",
 ]

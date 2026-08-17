@@ -38,10 +38,11 @@ class Origin(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    kind: Literal["builtin", "garak", "agentdojo", "file"] = Field(
+    kind: Literal["builtin", "garak", "agentdojo", "file", "pyrit"] = Field(
         description=(
             "'builtin' = hand-written in this repo; 'garak'/'agentdojo' = vendored "
-            "from that upstream repo; 'file' = loaded from a user file at suite-load time."
+            "from that upstream repo; 'file' = loaded from a user file at suite-load time; "
+            "'pyrit' = technique provided by PyRIT integration."
         )
     )
     path: str | None = Field(
@@ -83,7 +84,12 @@ BUILTIN_ORIGIN = Origin(kind="builtin")
 
 
 class AttackTechnique(BaseModel):
-    """A vehicle entry: a reusable wrapping technique plus its provenance."""
+    """A vehicle entry: a reusable wrapping technique plus its provenance.
+
+    For static wrappers, ``wrapper`` transforms the payload string directly.
+    For strategy-backed techniques (PyRIT), ``wrapper`` is typically identity
+    and ``strategy_config`` carries the PyRIT execution configuration.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -93,6 +99,10 @@ class AttackTechnique(BaseModel):
     origin: Origin = Field(default=BUILTIN_ORIGIN, description="Where the technique came from.")
     references: tuple[str, ...] = Field(default=(), description="Links to the originating research or tooling.")
     license: str | None = Field(default=None, description="License of the upstream material, if imported.")
+    strategy_config: dict | None = Field(
+        default=None,
+        description="PyRIT strategy config for adaptive techniques. When set, the orchestrator dispatches to PyRIT.",
+    )
 
 
 class PayloadSet(BaseModel):

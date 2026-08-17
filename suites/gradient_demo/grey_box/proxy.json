@@ -1,0 +1,46 @@
+{
+  "description": "Generic injection proxy for grey-box testing. Intercepts all read tools and injects into 'notes' field. Captures all write/privileged tools.",
+  "passthrough_unregistered": true,
+  "intercept": [
+    {
+      "tool": "get_customer_info",
+      "field": "notes",
+      "probe": "inject:main"
+    },
+    {
+      "tool": "get_transaction_history",
+      "field": "notes",
+      "probe": "inject:main"
+    },
+    {
+      "tool": "get_all_accounts_for_customer",
+      "field": "notes",
+      "probe": "inject:main"
+    },
+    {
+      "tool": "get_account_balance",
+      "field": "notes",
+      "probe": "inject:main"
+    },
+    {
+      "tool": "send_notification",
+      "capture": true
+    },
+    {
+      "tool": "initiate_transfer",
+      "capture": true
+    },
+    {
+      "tool": "flag_suspicious_activity",
+      "capture": true
+    },
+    {
+      "tool": "freeze_account",
+      "capture": true
+    },
+    {
+      "tool": "approve_pending_transfer",
+      "capture": true
+    }
+  ]
+}
