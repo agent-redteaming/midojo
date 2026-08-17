@@ -3,13 +3,15 @@
 A *verifier* defines *how an outcome is checked*. This module is the
 provider-agnostic framework: the :class:`Predicate` protocol (anything that can
 evaluate a :class:`VerificationContext`), the :class:`Verifier` protocol (parses
-YAML into predicates), the :class:`Check` binding, the boolean combinators
-(:class:`AllOf`, :class:`AnyOf`, :class:`Not`), and the registry that dispatches
-a check block to the verifier that owns it.
+YAML into predicates), the :class:`Check` binding, and the registry that
+dispatches a check block to the verifier that owns it.
 
-Concrete predicate types live in :mod:`midojo.verifiers.builtin` (the default
-verifier). Future verifiers (filesystem inspection, ACS runtime checks, etc.)
-add modules here and self-register on import.
+Concrete predicate types live in sibling modules and are re-exported here: the
+boolean combinators (:class:`AllOf`, :class:`AnyOf`, :class:`Not`) in
+:mod:`midojo.verifiers.combinators`, and the built-in checks in
+:mod:`midojo.verifiers.builtin` (the default verifier). Future verifiers
+(filesystem inspection, ACS runtime checks, etc.) add modules here and
+self-register on import.
 
 How dispatch works: a ``utility:`` / ``security:`` block in ``suite.yaml`` is a
 single-key dict. If that key names a registered verifier, the verifier parses
@@ -114,57 +116,6 @@ class Verifier(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Combinators
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class AllOf:
-    predicates: list[Predicate]
-
-    def assess(self, ctx: VerificationContext) -> VerificationResult:
-        reasons: list[str] = []
-        for p in self.predicates:
-            r = p.assess(ctx)
-            if not r.passed:
-                return VerificationResult(False, r.reason)  # first failing conjunct — same short-circuit as all()
-            reasons.append(r.reason)
-        return VerificationResult(True, "all of (" + "; ".join(reasons) + ")")
-
-    def evaluate(self, ctx: VerificationContext) -> bool:
-        return self.assess(ctx).passed
-
-
-@dataclass
-class AnyOf:
-    predicates: list[Predicate]
-
-    def assess(self, ctx: VerificationContext) -> VerificationResult:
-        reasons: list[str] = []
-        for p in self.predicates:
-            r = p.assess(ctx)
-            if r.passed:
-                return VerificationResult(True, r.reason)  # only the branch that fired — same short-circuit as any()
-            reasons.append(r.reason)
-        return VerificationResult(False, "any of (" + "; ".join(reasons) + ")")
-
-    def evaluate(self, ctx: VerificationContext) -> bool:
-        return self.assess(ctx).passed
-
-
-@dataclass
-class Not:
-    predicate: Predicate
-
-    def assess(self, ctx: VerificationContext) -> VerificationResult:
-        r = self.predicate.assess(ctx)
-        return VerificationResult(not r.passed, f"not ({r.reason})")
-
-    def evaluate(self, ctx: VerificationContext) -> bool:
-        return self.assess(ctx).passed
-
-
-# ---------------------------------------------------------------------------
 # Check binding & registry
 # ---------------------------------------------------------------------------
 
@@ -239,7 +190,22 @@ def parse_check(raw: dict) -> Check:
 
 
 # ---------------------------------------------------------------------------
-# Auto-register built-in verifiers on import
+# Concrete predicates & auto-registration (imported last to avoid import cycles:
+# these modules import the protocols/context/registry defined above)
 # ---------------------------------------------------------------------------
 
 from midojo.verifiers import builtin as _builtin  # noqa: F401  -- registers the default verifier
+from midojo.verifiers.combinators import AllOf, AnyOf, Not  # re-exported for the public API
+
+__all__ = [
+    "AllOf",
+    "AnyOf",
+    "Check",
+    "Not",
+    "Predicate",
+    "VerificationContext",
+    "VerificationResult",
+    "Verifier",
+    "parse_check",
+    "register_verifier",
+]
