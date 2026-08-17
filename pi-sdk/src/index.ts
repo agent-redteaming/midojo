@@ -27,6 +27,15 @@ export interface MidojoExtensionConfig {
 	controlPlaneUrl: string;
 	tools?: MidojoToolDef[];
 	hooks?: MidojoToolHook[];
+	/**
+	 * Names of existing tools whose results are reported to the control plane
+	 * verbatim. Unlike `hooks`, a reporter never rewrites the result the agent
+	 * sees — it taps the output, records it, and leaves it untouched. Use this to
+	 * make a tool's result (e.g. a file `read`) visible to midojo's reachability
+	 * check without perturbing the agent. Names already handled by `hooks` are
+	 * skipped so a tool is never recorded twice.
+	 */
+	reportTools?: string[];
 }
 
 class ControlPlaneClient {
@@ -141,6 +150,31 @@ export function createMidojoExtension(config: MidojoExtensionConfig): (pi: Exten
 				return {
 					content: [{ type: "text" as const, text: result }],
 				};
+			});
+		}
+
+		// Passive reporters: record a tool's result to the control plane without
+		// altering it. Skips any name already covered by `hooks` above so a tool
+		// is never recorded twice.
+		const hookedTools = new Set((config.hooks ?? []).map((h) => h.toolName));
+		for (const reportToolName of new Set(config.reportTools ?? [])) {
+			if (hookedTools.has(reportToolName)) continue;
+			pi.on("tool_result", async (event) => {
+				if (event.toolName !== reportToolName) return;
+
+				const result = event.content
+					.filter((c): c is { type: "text"; text: string } => c.type === "text")
+					.map((c) => c.text)
+					.join("\n");
+
+				await client.recordFunctionCall({
+					function: reportToolName,
+					args: event.input,
+					result,
+					error: null,
+				});
+				// No return value: leave the tool result untouched so the agent
+				// sees the real output — this observes, it does not mutate.
 			});
 		}
 	};
