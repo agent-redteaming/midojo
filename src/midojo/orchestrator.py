@@ -245,18 +245,26 @@ async def run_task(
         )
 
         if backend is not None:
+            # OpenShell provisioning (sandbox create/boot, seeding, teardown) is
+            # slow and blocking; show a live spinner per phase so the run isn't
+            # silent while it works. Label each with the task pair being run.
+            pair = f"{user_task_id} x {injection_task_id}" if injection_task_id else user_task_id
             pre_env = backend.provision(injections)  # type: ignore[union-attr]
-            await asyncio.to_thread(backend.setup, pre_env)  # type: ignore[union-attr]
+            with console.status(f"[dim]{pair} · creating sandbox (image pull + boot)…[/dim]", spinner="dots"):
+                await asyncio.to_thread(backend.setup, pre_env)  # type: ignore[union-attr]
             try:
-                agent_output = await agent_client.send_task(prompt)
-                post_env = await asyncio.to_thread(backend.snapshot)  # type: ignore[union-attr]
+                with console.status(f"[dim]{pair} · running agent in sandbox…[/dim]", spinner="dots"):
+                    agent_output = await agent_client.send_task(prompt)
+                with console.status(f"[dim]{pair} · collecting sandbox observations…[/dim]", spinner="dots"):
+                    post_env = await asyncio.to_thread(backend.snapshot)  # type: ignore[union-attr]
                 env_resp = await client.put(
                     f"{control_url}/runs/{run_id}/evaluations/{eval_id}/environment",
                     json=post_env.model_dump(),  # type: ignore[union-attr]
                 )
                 env_resp.raise_for_status()
             finally:
-                await asyncio.to_thread(backend.teardown)  # type: ignore[union-attr]
+                with console.status(f"[dim]{pair} · tearing down sandbox…[/dim]", spinner="dots"):
+                    await asyncio.to_thread(backend.teardown)  # type: ignore[union-attr]
         else:
             agent_output = await agent_client.send_task(prompt)
 
@@ -297,7 +305,14 @@ async def run_benchmark(
     # openshell provisions one workspace per run (named after run_id) around the
     # eval loop; the sandbox itself is created/torn down per evaluation.
     if lifecycle_backend is not None:
-        await asyncio.to_thread(lifecycle_backend.start_run, run_id)  # type: ignore[attr-defined]
+        workspace_name = f"midojo-run-{run_id}"  # mirrors OpenShellBackend.start_run
+        with console.status(
+            f"[dim]opening workspace [cyan]{workspace_name}[/cyan] on the gateway…[/dim]", spinner="dots"
+        ):
+            await asyncio.to_thread(lifecycle_backend.start_run, run_id)  # type: ignore[attr-defined]
+        console.print(
+            f"  [magenta]openshell[/magenta] [dim]workspace[/dim] [cyan]{workspace_name}[/cyan] [green]ready[/green]\n"
+        )
 
     utility_results: dict[TaskPair, bool] = {}
     security_results: dict[TaskPair, bool] = {}
@@ -343,7 +358,10 @@ async def run_benchmark(
                         console.print("    ", Text("N/A (payload not in any result)", style="dim"))
     finally:
         if lifecycle_backend is not None:
-            await asyncio.to_thread(lifecycle_backend.end_run)  # type: ignore[attr-defined]
+            console.print()
+            with console.status("[dim]draining and deleting the run workspace…[/dim]", spinner="dots"):
+                await asyncio.to_thread(lifecycle_backend.end_run)  # type: ignore[attr-defined]
+            console.print("  [magenta]openshell[/magenta] [dim]workspace[/dim] [green]cleaned up[/green]")
 
     console.print()
 
