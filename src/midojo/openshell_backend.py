@@ -421,9 +421,15 @@ class OpenShellBackend:
         Uses ``agent_command`` from the suite YAML if set, otherwise falls back
         to the image's default entrypoint by running the prompt as a positional
         argument. Suite authors should always set ``agent_command`` explicitly.
+
+        Runs with cwd set to the seed directory so the agent resolves bare
+        filenames (e.g. ``customer_report.txt``) against the workdir. This keeps
+        tasks readable and, more importantly, removes a fragile dependency on the
+        model echoing an absolute path back verbatim: a bare filename has no
+        leading slash to drop, so it resolves correctly regardless of the model.
         """
         cmd = [*self._agent_command, prompt] if self._agent_command else [prompt]
-        return self._client.exec(self._ref.id, cmd, timeout_seconds=timeout_seconds)
+        return self._client.exec(self._ref.id, cmd, workdir=_WORKDIR, timeout_seconds=timeout_seconds)
 
     def _fetch_ocsf(self) -> OCSFEvents:
         """Fetch OCSF events from the sandbox log stream, with caching.
