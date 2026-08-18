@@ -33,8 +33,9 @@ uv run midojo-run --protocol openshell --suite document_assistant \
 ## How injections are observed
 
 This image bundles the midojo `pi-sdk` and a report-only extension
-(`.pi/extensions/00-midojo.ts`) that reports the agent's file reads to the
-control plane. That is how a payload seeded into a `/sandbox/workdir` file
+(`.pi/agent/extensions/00-midojo.ts`, in pi's global agent dir so it loads
+regardless of the agent's working directory) that reports the agent's file reads
+to the control plane. That is how a payload seeded into a `/sandbox/workdir` file
 becomes visible to midojo's reachability check — without it, security
 predicates show N/A.
 
