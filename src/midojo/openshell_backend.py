@@ -50,6 +50,15 @@ _COMMUNITY_REGISTRY = "ghcr.io/nvidia/openshell-community/sandboxes"
 # agent works. Relative paths in the suite's `state` are placed under it.
 _WORKDIR = "/sandbox/workdir"
 
+# From inside an OpenShell sandbox, the host machine that runs the midojo control
+# plane is reachable as this DNS name — `localhost` would resolve to the sandbox
+# itself. The control-plane URL handed to the in-sandbox SDK (MIDOJO_URL) is
+# rewritten to use it. The suite's network policy must separately allow this
+# endpoint; midojo never edits the declared policy — it only warns when the
+# allow rule is missing (see `_warn_if_control_plane_not_allowed`).
+_SANDBOX_HOST = "host.openshell.internal"
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
+
 # The gateway's sandbox teardown can take longer than the SDK's 30s default
 # per-call gRPC timeout: DeleteSandbox blocks server-side until the sandbox is
 # gone, and each wait_deleted poll issues its own GetSandbox call. Use a larger
@@ -93,6 +102,84 @@ def _resolve_policy(spec: dict | None, sandbox_spec: Any) -> None:
     from google.protobuf.json_format import ParseDict  # protobuf is a required dep
 
     ParseDict(spec, sandbox_spec.policy)
+
+
+def _rewrite_host_for_sandbox(url: str) -> str:
+    """Rewrite a control-plane URL so it is reachable from inside the sandbox.
+
+    ``localhost`` and loopback addresses resolve to the sandbox itself, not the
+    host running the control plane. Replace such hosts with
+    ``host.openshell.internal`` while preserving scheme, userinfo, port, and
+    path. Non-local hosts pass through unchanged.
+    """
+    from urllib.parse import urlsplit, urlunsplit
+
+    parts = urlsplit(url)
+    if (parts.hostname or "").lower() not in _LOCAL_HOSTS:
+        return url
+    userinfo = ""
+    if parts.username:
+        userinfo = parts.username
+        if parts.password:
+            userinfo += f":{parts.password}"
+        userinfo += "@"
+    port = f":{parts.port}" if parts.port else ""
+    netloc = f"{userinfo}{_SANDBOX_HOST}{port}"
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+
+
+def _warn_if_control_plane_not_allowed(policy_spec: dict | None, url: str) -> None:
+    """Warn (never mutate) if the policy does not allow reaching the control plane.
+
+    The in-sandbox agent SDK POSTs its tool calls to the control plane, so the
+    suite's network policy must include an egress allow rule for it (see the
+    example ``suite.yaml``). midojo deliberately does not inject this rule: the
+    declared policy is a security control, so what you write is what runs. This
+    check only surfaces the common misconfiguration — otherwise the symptom is
+    silently N/A security predicates.
+
+    The endpoint checked is ``url`` with any ``localhost``/loopback host rewritten
+    to ``host.openshell.internal`` (matching :func:`_rewrite_host_for_sandbox`)
+    and the port defaulted from the scheme when absent. ``policy_spec=None`` means
+    no midojo policy (the image built-in governs egress), which we cannot inspect.
+    """
+    import logging
+    from urllib.parse import urlsplit
+
+    log = logging.getLogger(__name__)
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if host.lower() in _LOCAL_HOSTS:
+        host = _SANDBOX_HOST
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+
+    if policy_spec is None:
+        log.warning(
+            "No sandbox network policy defined; cannot verify the agent can reach "
+            "the control plane at %s:%d. If it cannot, the in-sandbox SDK will not "
+            "record tool calls and security predicates will show N/A. Ensure the "
+            "image's built-in policy allows this endpoint.",
+            host,
+            port,
+        )
+        return
+
+    network_policies = policy_spec.get("networkPolicies") or {}
+    allowed = any(
+        any(ep.get("host") == host and ep.get("port") == port for ep in (entry.get("endpoints") or []))
+        for entry in network_policies.values()
+    )
+    if not allowed:
+        log.warning(
+            "Sandbox network policy does not allow the control plane at %s:%d; the "
+            "in-sandbox agent SDK cannot POST tool calls and security predicates "
+            "will show N/A. Add it to your suite's policy under networkPolicies, "
+            "e.g. an endpoint {host: %s, port: %d}.",
+            host,
+            port,
+            host,
+            port,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -278,6 +365,11 @@ class OpenShellBackend:
         self._workspace_name = f"midojo-run-{run_id}"
         self._workspace_client.create(self._workspace_name)
 
+        # Policy and control-plane URL are fixed for the whole run, so check the
+        # control-plane allow rule once here rather than on every setup().
+        if self._control_url:
+            _warn_if_control_plane_not_allowed(self._policy_spec, self._control_url)
+
     # --- Per-evaluation sandbox lifecycle ---
 
     def setup(self, pre_env: OpenShellEnvironment) -> None:  # type: ignore[override]
@@ -289,8 +381,13 @@ class OpenShellBackend:
         self._seeded_workdir = dict(pre_env.workdir_files)
 
         env = {**self._env_vars}
+        # The in-sandbox agent SDK POSTs its tool calls to the control plane, so
+        # the sandbox must be able to reach it. `localhost` resolves to the sandbox
+        # itself, so hand the SDK the host.openshell.internal form of the URL. The
+        # suite's network policy must allow this endpoint (checked once in
+        # start_run); midojo never edits the declared policy.
         if self._control_url:
-            env["MIDOJO_URL"] = self._control_url
+            env["MIDOJO_URL"] = _rewrite_host_for_sandbox(self._control_url)
         spec = self._pb2.SandboxSpec(
             template=self._pb2.SandboxTemplate(image=_resolve_image(self._image)),
             environment=env,
