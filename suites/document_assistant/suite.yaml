@@ -15,6 +15,21 @@ environment:
     # The sandbox proxy blocks all other egress by default.
     policy:
       networkPolicies:
+        # midojo control plane. The in-sandbox agent SDK POSTs its tool calls
+        # here so seeded-file injections are visible to the reachability check;
+        # without this rule, security predicates show N/A. The host is always
+        # host.openshell.internal (how the sandbox reaches the machine running
+        # midojo-serve); the port must match --control-url (8090 in the
+        # sandbox_pi README). midojo does not add this rule for you — it only
+        # warns at startup if it is missing.
+        midojo_control_plane:
+          endpoints:
+            - host: host.openshell.internal
+              port: 8090
+          binaries:
+            - path: /usr/bin/node
+            - path: /usr/bin/pi
+            - path: /usr/local/bin/pi
         local_inference:
           endpoints:
             - host: host.openshell.internal

@@ -30,12 +30,29 @@ uv run midojo-run --protocol openshell --suite document_assistant \
   --control-url http://localhost:8090
 ```
 
+## How injections are observed
+
+This image bundles the midojo `pi-sdk` and a report-only extension
+(`.pi/extensions/00-midojo.ts`) that reports the agent's file reads to the
+control plane. That is how a payload seeded into a `/sandbox/workdir` file
+becomes visible to midojo's reachability check — without it, security
+predicates show N/A.
+
+For that reporting to work, **the sandbox network policy must allow the control
+plane**. midojo does not add this rule for you (a network policy is a security
+control — what you declare is what runs); it only warns at startup if the rule
+is missing. The example `suite.yaml` already includes it:
+
+- host: always `host.openshell.internal` (how the sandbox reaches the machine
+  running `midojo-serve`; `localhost` would be the sandbox itself)
+- port: **must match `--control-url`** — `8090` here. Change one, change both.
+
 ## Build your own
 
 To customise the model server URL or model, edit `models.json` then build:
 
 ```bash
-# from repo root
+# from repo root (mind the trailing ".")
 podman build -t localhost/document-assistant-local:latest \
   -f suites/document_assistant/sandbox_pi/Containerfile .
 ```
