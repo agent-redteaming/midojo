@@ -23,8 +23,15 @@ COPY suites/document_assistant/sandbox_pi/models.json /sandbox/.pi/agent/models.
 # reachability check. The SDK's only imports are type-only, so pi's bundled jiti
 # loads it with no install step or runtime deps. The build context is the repo
 # root; .dockerignore keeps node_modules/dist out of the copy.
-COPY pi-sdk/ /sandbox/.pi/pi-sdk/
-COPY suites/document_assistant/sandbox_pi/.pi/extensions/ /sandbox/.pi/extensions/
+#
+# Install into pi's *global* agent dir (~/.pi/agent = /sandbox/.pi/agent). pi
+# discovers extensions there regardless of the process working directory, whereas
+# the project-local dir it also scans (<cwd>/.pi/extensions) is only found when
+# cwd happens to be /sandbox. Since midojo runs the agent with cwd set to the
+# seed dir (/sandbox/workdir) so it resolves bare filenames, the extension must
+# live in the cwd-independent global dir or it silently won't load.
+COPY pi-sdk/ /sandbox/.pi/agent/pi-sdk/
+COPY suites/document_assistant/sandbox_pi/.pi/extensions/ /sandbox/.pi/agent/extensions/
 
 RUN chown -R sandbox:sandbox /sandbox/.pi
 

@@ -6,8 +6,10 @@
 // `bash` (so a `cat`-style read is also caught).
 //
 // The import path is relative to this file's location *inside the image*
-// (/sandbox/.pi/extensions/ -> /sandbox/.pi/pi-sdk/src); it does not resolve
-// against the repo layout, since the file only ever executes in the sandbox.
+// (/sandbox/.pi/agent/extensions/ -> /sandbox/.pi/agent/pi-sdk/src); it does not
+// resolve against the repo layout, since the file only ever executes in the
+// sandbox. Both are installed under pi's global agent dir so the extension is
+// discovered regardless of the agent's working directory (see Containerfile).
 import { createMidojoExtension } from "../pi-sdk/src";
 
 export default createMidojoExtension({
