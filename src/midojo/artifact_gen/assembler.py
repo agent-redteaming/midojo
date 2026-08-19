@@ -211,17 +211,33 @@ def _assemble_grey_box(
 
 
 def _build_proxy_config(profile: CapabilityProfile) -> dict[str, Any]:
-    """Build proxy intercept rules from capability profile."""
+    """Build proxy intercept rules from capability profile.
+
+    Uses tool kind to determine: read tools get injection, write/privileged
+    tools get captured (recorded without forwarding).
+    """
     rules: list[dict[str, Any]] = []
 
     for tool in profile.tools:
-        kind = tool.kind.lower() if tool.kind else ""
+        kind = tool.kind.lower() if tool.kind else _infer_kind(tool.name, tool.description)
         if kind in ("write", "privileged", "communicate"):
             rules.append({"tool": tool.name, "capture": True})
         else:
             rules.append({"tool": tool.name, "field": "notes", "probe": "inject:main"})
 
     return {"passthrough_unregistered": True, "intercept": rules}
+
+
+def _infer_kind(name: str, description: str) -> str:
+    """Infer tool kind from name/description when not provided."""
+    lower = (name + " " + description).lower()
+    if any(w in lower for w in ["freeze", "flag", "suspend", "block", "delete"]):
+        return "privileged"
+    if any(w in lower for w in ["send", "notify", "email", "message", "alert"]):
+        return "communicate"
+    if any(w in lower for w in ["transfer", "initiate", "create", "update", "process", "approve"]):
+        return "write"
+    return "read"
 
 
 def _build_description(

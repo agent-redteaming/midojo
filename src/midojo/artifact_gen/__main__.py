@@ -81,6 +81,7 @@ def _run(
 @click.option("--llm-url", required=True, help="LLM endpoint URL (OpenAI-compatible)")
 @click.option("--llm-model", required=True, help="LLM model name")
 @click.option("--llm-api-key", default="no-key", help="LLM API key")
+@click.option("--mcp-url", default=None, help="MCP server URL for real tool discovery (grey box)")
 @click.option("--tiers", default="black_box,grey_box", help="Comma-separated tiers to generate")
 @click.option("--log-level", default="INFO", help="Log level")
 def main(
@@ -89,6 +90,7 @@ def main(
     llm_url: str,
     llm_model: str,
     llm_api_key: str,
+    mcp_url: str | None,
     tiers: str,
     log_level: str,
 ) -> None:
@@ -99,6 +101,25 @@ def main(
     click.echo(f"Loaded forge run: {len(forge_run.scenarios)} scenarios, "
                f"{len(forge_run.capability_profile.tools)} tools, "
                f"{len(forge_run.loss_analysis.security_constraints)} constraints")
+
+    # If MCP URL provided, discover real tools and enrich the profile
+    if mcp_url:
+        from midojo.artifact_gen.tool_discovery import discover_tools_sync, enrich_profile_with_real_tools
+
+        real_tools = discover_tools_sync(mcp_url)
+        click.echo(f"Discovered {len(real_tools)} real tools from {mcp_url}")
+        enriched = enrich_profile_with_real_tools(
+            [{"name": t.name, "description": t.description} for t in forge_run.capability_profile.tools],
+            real_tools,
+        )
+        # Replace profile tools with real ones
+        from midojo.artifact_gen.forge_reader import Tool
+
+        forge_run.capability_profile.tools = [
+            Tool(name=t["name"], description=t["description"], kind=t.get("kind", ""))
+            for t in enriched
+        ]
+        click.echo(f"Tools: {[t['name'] for t in enriched]}")
 
     tier_list = [t.strip() for t in tiers.split(",")]
     _run(forge_run, Path(output), llm_url, llm_model, llm_api_key, tier_list)
