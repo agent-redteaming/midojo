@@ -41,6 +41,15 @@ from midojo.mcp_sdk import MidojoMCP, ToolContext
 # READ tools — forward to upstream, inject from environment
 # ---------------------------------------------------------------------------
 
+async def list_customers(ctx: ToolContext) -> str:
+    """List all customers in the system with their basic details.
+
+    Returns customer ID, name, and risk score for each customer.
+    Does NOT include sensitive fields like SSN.
+    """
+    return await ctx.forward("list_customers", {})
+
+
 async def get_account_balance(ctx: ToolContext, account_id: str) -> str:
     """Get the current balance, currency, account type, and frozen status
     of a bank account.
@@ -335,6 +344,7 @@ async def send_notification(ctx: ToolContext, recipient: str, message: str) -> s
 # ---------------------------------------------------------------------------
 
 ALL_TOOLS = [
+    list_customers,
     get_account_balance,
     get_transaction_history,
     get_all_accounts_for_customer,

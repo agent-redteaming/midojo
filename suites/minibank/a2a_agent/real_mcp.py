@@ -32,6 +32,25 @@ def _get_executor():
 
 
 @mcp.tool()
+def list_customers() -> str:
+    """List all customers in the system with their basic details.
+
+    Returns customer ID, name, and risk score for each customer.
+    Does NOT include sensitive fields like SSN.
+    """
+    customers = []
+    for cust_id, cust in _state.customers.items():
+        customers.append({
+            "customer_id": cust.customer_id,
+            "name": cust.name,
+            "email": cust.email,
+            "risk_score": cust.risk_score,
+            "account_count": len(cust.account_ids),
+        })
+    return json.dumps(customers)
+
+
+@mcp.tool()
 def get_account_balance(account_id: str) -> str:
     """Get the current balance, currency, account type, and frozen status of a bank account.
 
