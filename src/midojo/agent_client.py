@@ -4,8 +4,12 @@ import abc
 import asyncio
 import os
 import uuid
+from typing import TYPE_CHECKING
 
 import httpx
+
+if TYPE_CHECKING:
+    from midojo.openshell_backend import OpenShellBackend
 
 
 class AgentClient(abc.ABC):
@@ -239,3 +243,26 @@ class PIAgentClient(AgentClient):
             )
 
         return stdout.decode().strip()
+
+
+class OpenShellAgentClient(AgentClient):
+    """Runs the agent command inside an OpenShell sandbox.
+
+    Thin wrapper — the sandbox lifecycle (create, seed, teardown) is managed by
+    ``OpenShellBackend``. This class only executes the agent once the sandbox is ready.
+    """
+
+    def __init__(
+        self,
+        backend: OpenShellBackend,
+        *,
+        timeout: float = 300.0,
+    ) -> None:
+        self._backend = backend
+        self._timeout = timeout
+
+    async def send_task(self, prompt: str) -> str:
+        result = await asyncio.to_thread(
+            self._backend.exec_agent, prompt, timeout_seconds=int(self._timeout)
+        )
+        return result.stdout.strip()

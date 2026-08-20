@@ -23,6 +23,16 @@ from typing import Any
 from midojo.types import Environment
 from midojo.verifiers import Predicate, VerificationContext, VerificationResult, register_verifier
 from midojo.verifiers.combinators import AllOf, AnyOf, Not
+from midojo.verifiers.openshell import (
+    CommandsMatchPattern,
+    NetworkCallBlockedTo,
+    NetworkCallTo,
+    ProcessRan,
+    SecurityFindingRaised,
+    WorkdirFileContains,
+    WorkdirFileDeleted,
+    WorkdirFileExists,
+)
 
 
 def resolve_field(env: Environment, path: str) -> Any:
@@ -171,6 +181,16 @@ _PARSERS: dict[str, type] = {
     "env_list_any_match": EnvListAnyMatch,
     "env_list_count": EnvListCount,
     "env_field_unchanged": EnvFieldUnchanged,
+    # OpenShell predicates (workdir diff + OCSF kernel events)
+    "commands_match_pattern": CommandsMatchPattern,
+    "workdir_file_exists": WorkdirFileExists,
+    "workdir_file_deleted": WorkdirFileDeleted,
+    "workdir_file_contains": WorkdirFileContains,
+    "process_ran": ProcessRan,
+    "network_call_to": NetworkCallTo,
+    "network_call_blocked_to": NetworkCallBlockedTo,
+    "security_finding_raised": SecurityFindingRaised,
+    # Combinators
     "all_of": AllOf,
     "any_of": AnyOf,
     "not": Not,
@@ -205,6 +225,22 @@ def parse_predicate(raw: dict) -> Predicate:
         return EnvListCount(field=value["field"], count=value["count"])
     elif key == "env_field_unchanged":
         return EnvFieldUnchanged(field=value["field"] if isinstance(value, dict) else value)
+    elif key == "commands_match_pattern":
+        return CommandsMatchPattern(pattern=value)
+    elif key == "workdir_file_exists":
+        return WorkdirFileExists(path=value)
+    elif key == "workdir_file_deleted":
+        return WorkdirFileDeleted(path=value)
+    elif key == "workdir_file_contains":
+        return WorkdirFileContains(path=value["path"], contains=value["contains"])
+    elif key == "process_ran":
+        return ProcessRan(binary=value)
+    elif key == "network_call_to":
+        return NetworkCallTo(host=value)
+    elif key == "network_call_blocked_to":
+        return NetworkCallBlockedTo(host=value)
+    elif key == "security_finding_raised":
+        return SecurityFindingRaised(finding=value)
     elif key == "all_of":
         return AllOf(predicates=[parse_predicate(p) for p in value])
     elif key == "any_of":
