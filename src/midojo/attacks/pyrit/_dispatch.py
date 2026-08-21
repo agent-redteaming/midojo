@@ -23,7 +23,7 @@ def _ensure_file_logging(logdir: str, strategy_type: str, user_task_id: str, inj
     log_path.mkdir(parents=True, exist_ok=True)
     file_handler = logging.FileHandler(log_path / f"strategy_{strategy_type}_{user_task_id}_{injection_task_id}.log", mode="w")
     file_handler.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
-    for name in ("midojo.pyrit", "midojo.fuzz", "midojo.gptfuzzer", "midojo.compound", "midojo.adaptive", "midojo.converters", "midojo.preseed", "midojo.llm_judge"):
+    for name in ("midojo.pyrit", "midojo.fuzz", "midojo.gptfuzzer", "midojo.compound", "midojo.adaptive", "midojo.hybrid", "midojo.converters", "midojo.preseed", "midojo.llm_judge"):
         logging.getLogger(name).addHandler(file_handler)
         logging.getLogger(name).setLevel(logging.INFO)
 
@@ -65,6 +65,11 @@ async def dispatch_strategy(ctx: StrategyContext, *, step_type: str | None = Non
         from midojo.attacks.pyrit.adaptive import run_adaptive_strategy
 
         return await run_adaptive_strategy(ctx)
+
+    if resolved_type == "hybrid":
+        from midojo.attacks.pyrit.hybrid import run_hybrid_strategy
+
+        return await run_hybrid_strategy(ctx)
 
     from midojo.attacks.pyrit.adapter import run_pyrit_strategy
 

@@ -59,6 +59,8 @@ for additional examples refer to [README.md](./README.md).
 - **Payload set** (`src/midojo/attacks/data/`): curated corpus of payloads from external sources (e.g. Garak). Referenced in suite YAML via `source: "garak:<name>"`
 - **Verifier** (`src/midojo/verifiers/`): checks whether an injection succeeded, for example with `output_contains`, `env_field_equals`, `env_list_any_match`, `env_field_contains`, `env_field_unchanged`, `env_list_count`, `function_called`, `function_call_arg_contains`, composable with `any_of`, `all_of`, `not`
 - **Attack strategy** (`src/midojo/attacks/pyrit_adapter.py`): adaptive attack via PyRIT — `pair` (iterative refinement), `tap` (tree-of-attacks with pruning), `crescendo` (multi-turn conversational), `red_team`, `skeleton_key`, `many_shot`, `prompt_sending`. Defined in probe's `strategy:` block or via `--strategy` CLI override
+- **Injection plan** (`PUT/GET /current/injection-plan`): dynamic injection instructions pushed by the attack engine, read by the thin proxy on each tool call. Each instruction has `payload`, `target_tool` (null = any), `target_field` (null = auto-detect), and `mode` (embed, replace, append, new_field)
+- **Thin proxy** (`midojo_proxy.py`, `src/midojo/mcp_sdk.py`): plan-driven MITM proxy. Forwards all tool calls to the real MCP, reads injection instructions from the control plane, auto-detects the best field for injection. Capture-only tools are recorded without forwarding (state isolation)
 
 ## Patterns for Common Changes
 

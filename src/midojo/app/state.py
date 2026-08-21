@@ -17,6 +17,19 @@ from pydantic import BaseModel, ConfigDict, Field
 from midojo.types import Environment, FunctionCallRecord
 from midojo.yaml_task_suite import YAMLTaskSuite
 
+
+@dataclass
+class InjectionInstruction:
+    """A single injection instruction in an injection plan.
+
+    The attack engine writes these; the proxy reads and executes them.
+    """
+
+    payload: str
+    target_tool: str | None = None
+    target_field: str | None = None
+    mode: str = "embed"
+
 if TYPE_CHECKING:
     from .store import Store
 
@@ -43,6 +56,7 @@ class Evaluation:
     completed: bool = False
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     active_injections: dict[str, str] = field(default_factory=dict)
+    injection_plan: list[InjectionInstruction] = field(default_factory=list)
     utility: bool | None = None
     security: bool | None = None
 

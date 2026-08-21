@@ -107,3 +107,19 @@ class TaskDetailResponse(BaseModel):
     type: str
     prompt: str | None = None
     description: str | None = None
+
+
+# --- Injection plan models ---
+
+
+class InjectionInstructionModel(BaseModel):
+    """A single injection instruction pushed by the attack engine, executed by the proxy."""
+
+    payload: str
+    target_tool: str | None = None
+    target_field: str | None = None
+    mode: str = "embed"
+
+
+class SetInjectionPlanRequest(BaseModel):
+    instructions: list[InjectionInstructionModel]

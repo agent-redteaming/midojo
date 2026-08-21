@@ -1,6 +1,7 @@
 """Tests for the MCP SDK — ToolContext, ControlPlaneClient, MidojoMCP."""
 
 import asyncio
+import json
 
 import httpx
 import pytest
@@ -137,6 +138,123 @@ async def test_tool_context_forward_raises_without_upstream():
 # --- Passthrough / Intercept tests ---
 
 
+class TestFindBestField:
+    """Tests for the _find_best_field auto-detection."""
+
+    def test_finds_known_text_field(self):
+        from midojo.mcp_sdk import _find_best_field
+
+        result = '{"customer_id": "CUST001", "name": "Alice", "notes": "Regular customer"}'
+        assert _find_best_field(result) == "notes"
+
+    def test_finds_description_in_nested_list(self):
+        from midojo.mcp_sdk import _find_best_field
+
+        result = '{"transactions": [{"txn_id": "T1", "description": "Payroll deposit", "amount": 5000}]}'
+        assert _find_best_field(result) is not None
+        assert "description" in _find_best_field(result)
+
+    def test_prefers_longer_known_field(self):
+        from midojo.mcp_sdk import _find_best_field
+
+        result = '{"notes": "Short", "address": "123 Main St, Boston MA 02101, United States of America"}'
+        # Both are known text fields; longer value wins (more room to hide injection)
+        assert _find_best_field(result) == "address"
+
+    def test_prefers_known_over_unknown(self):
+        from midojo.mcp_sdk import _find_best_field
+
+        result = '{"notes": "A customer note", "custom_field": "Some very long value that is not a known text field name at all"}'
+        assert _find_best_field(result) == "notes"
+
+    def test_falls_back_to_long_natural_text(self):
+        from midojo.mcp_sdk import _find_best_field
+
+        result = '{"customer_id": "C1", "custom_info": "This is a long field with natural language content for testing"}'
+        assert _find_best_field(result) == "custom_info"
+
+    def test_returns_none_for_no_text_fields(self):
+        from midojo.mcp_sdk import _find_best_field
+
+        result = '{"balance": 15420.50, "currency": "USD", "is_frozen": false}'
+        assert _find_best_field(result) is None
+
+    def test_skips_id_fields(self):
+        from midojo.mcp_sdk import _find_best_field
+
+        result = '{"customer_id": "CUST001", "account_id": "ACC001", "status": "active"}'
+        assert _find_best_field(result) is None
+
+    def test_handles_non_json(self):
+        from midojo.mcp_sdk import _find_best_field
+
+        assert _find_best_field("plain text result") is None
+
+    def test_finds_field_in_list_items(self):
+        from midojo.mcp_sdk import _find_best_field
+
+        result = '[{"id": "C1", "summary": "A detailed summary of the customer account status"}]'
+        best = _find_best_field(result)
+        assert best == "summary"
+
+
+class TestExecuteInjection:
+    """Tests for _execute_injection."""
+
+    def test_embed_with_target_field(self):
+        from midojo.mcp_sdk import _execute_injection
+
+        result = '{"notes": "Original note", "id": "1"}'
+        instruction = {"payload": "INJECTED", "target_field": "notes", "mode": "embed"}
+        injected = _execute_injection(result, instruction, "test_tool")
+        assert "Original note INJECTED" in injected
+
+    def test_embed_auto_detect(self):
+        from midojo.mcp_sdk import _execute_injection
+
+        result = '{"customer_id": "C1", "description": "Account summary for review"}'
+        instruction = {"payload": "INJECTED", "mode": "embed"}
+        injected = _execute_injection(result, instruction, "test_tool")
+        assert "INJECTED" in injected
+        data = json.loads(injected)
+        assert "INJECTED" in data.get("description", "") or "_annotation" in data
+
+    def test_replace_mode(self):
+        from midojo.mcp_sdk import _execute_injection
+
+        result = '{"balance": 15420.50}'
+        instruction = {"payload": "Completely replaced response", "mode": "replace"}
+        injected = _execute_injection(result, instruction, "test_tool")
+        assert injected == "Completely replaced response"
+
+    def test_append_mode(self):
+        from midojo.mcp_sdk import _execute_injection
+
+        result = '{"data": "value"}'
+        instruction = {"payload": "APPENDED", "mode": "append"}
+        injected = _execute_injection(result, instruction, "test_tool")
+        assert injected.startswith('{"data": "value"}')
+        assert "APPENDED" in injected
+
+    def test_new_field_mode(self):
+        from midojo.mcp_sdk import _execute_injection
+
+        result = '{"balance": 15420.50}'
+        instruction = {"payload": "INJECTED NOTE", "mode": "new_field"}
+        injected = _execute_injection(result, instruction, "test_tool")
+        data = json.loads(injected)
+        assert data["_annotation"] == "INJECTED NOTE"
+
+    def test_embed_fallback_to_annotation(self):
+        from midojo.mcp_sdk import _execute_injection
+
+        result = '{"balance": 15420.50, "currency": "USD", "is_frozen": false}'
+        instruction = {"payload": "INJECTED", "mode": "embed"}
+        injected = _execute_injection(result, instruction, "test_tool")
+        data = json.loads(injected)
+        assert "_annotation" in data
+
+
 class TestSpliceInjection:
     """Tests for the _splice_injection helper."""
 
@@ -177,13 +295,12 @@ class TestSpliceInjection:
         assert "INJECTED" in injected
 
 
-class TestMidojoMCPPassthrough:
-    """Tests for passthrough and intercept rule configuration."""
+class TestMidojoMCPConfig:
+    """Tests for MidojoMCP configuration."""
 
     def test_passthrough_default_false(self):
         mcp = MidojoMCP("test", control_plane_url="http://localhost:8080")
         assert mcp._passthrough is False
-        assert mcp._intercept_rules == {}
 
     def test_passthrough_enabled(self):
         mcp = MidojoMCP(
@@ -194,25 +311,6 @@ class TestMidojoMCPPassthrough:
         )
         assert mcp._passthrough is True
 
-    def test_intercept_rules_parsed(self):
-        rules = [
-            {"tool": "get_detail", "field": "notes", "probe": "inject_0:main"},
-            {"tool": "process_refund", "capture": True},
-        ]
-        mcp = MidojoMCP(
-            "test",
-            control_plane_url="http://localhost:8080",
-            intercept=rules,
-        )
-        assert "get_detail" in mcp._intercept_rules
-        assert mcp._intercept_rules["get_detail"]["field"] == "notes"
-        assert mcp._intercept_rules["process_refund"]["capture"] is True
-
-    def test_wildcard_intercept_rule(self):
-        rules = [{"tool": "*", "field": "description", "probe": "inject_0:main"}]
-        mcp = MidojoMCP("test", control_plane_url="http://localhost:8080", intercept=rules)
-        assert "*" in mcp._intercept_rules
-
     def test_tool_decorator_tracks_registration(self):
         mcp = MidojoMCP("test", control_plane_url="http://localhost:8080")
 
@@ -221,5 +319,67 @@ class TestMidojoMCPPassthrough:
             return arg
 
         assert "my_tool" in mcp._registered_tools
+
+    def test_no_forward_param(self):
+        mcp = MidojoMCP(
+            "test",
+            control_plane_url="http://localhost:8080",
+            no_forward=["send_notification", "initiate_transfer"],
+        )
+        assert "send_notification" in mcp._no_forward
+        assert "initiate_transfer" in mcp._no_forward
+
+    def test_no_forward_empty_by_default(self):
+        mcp = MidojoMCP("test", control_plane_url="http://localhost:8080")
+        assert mcp._no_forward == set()
+
+
+class TestInjectionPlanAPI:
+    """Tests for the injection plan control plane endpoints."""
+
+    def test_get_empty_plan(self, eval_context):
+        cp, run_id, eval_id = eval_context
+        resp = cp.get(f"/runs/{run_id}/evaluations/{eval_id}/injection-plan")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_set_and_get_plan(self, eval_context):
+        cp, run_id, eval_id = eval_context
+        plan = {
+            "instructions": [
+                {"payload": "INJECTED", "target_tool": "get_info", "target_field": "notes", "mode": "embed"},
+                {"payload": "REPLACED", "target_tool": None, "mode": "replace"},
+            ]
+        }
+        resp = cp.put(f"/runs/{run_id}/evaluations/{eval_id}/injection-plan", json=plan)
+        assert resp.status_code == 200
+        result = resp.json()
+        assert len(result) == 2
+        assert result[0]["payload"] == "INJECTED"
+        assert result[0]["target_tool"] == "get_info"
+        assert result[1]["mode"] == "replace"
+
+        get_resp = cp.get(f"/runs/{run_id}/evaluations/{eval_id}/injection-plan")
+        assert get_resp.json() == result
+
+    def test_current_injection_plan(self, eval_context):
+        cp, run_id, eval_id = eval_context
+        plan = {"instructions": [{"payload": "TEST", "mode": "embed"}]}
+        cp.put(f"/runs/{run_id}/evaluations/{eval_id}/injection-plan", json=plan)
+
+        resp = cp.get("/current/injection-plan")
+        assert resp.status_code == 200
+        assert len(resp.json()) == 1
+        assert resp.json()[0]["payload"] == "TEST"
+
+    def test_update_plan_replaces(self, eval_context):
+        cp, run_id, eval_id = eval_context
+        cp.put(f"/runs/{run_id}/evaluations/{eval_id}/injection-plan",
+               json={"instructions": [{"payload": "v1"}]})
+        cp.put(f"/runs/{run_id}/evaluations/{eval_id}/injection-plan",
+               json={"instructions": [{"payload": "v2"}, {"payload": "v3"}]})
+        resp = cp.get(f"/runs/{run_id}/evaluations/{eval_id}/injection-plan")
+        payloads = [i["payload"] for i in resp.json()]
+        assert payloads == ["v2", "v3"]
 
 

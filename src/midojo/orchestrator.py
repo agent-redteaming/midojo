@@ -222,6 +222,18 @@ async def run_task(
         eval_id = eval_data["id"]
         prompt = eval_data["prompt"]
 
+        # Push injection plan for the thin proxy (if there are injections)
+        if injections:
+            first_payload = next(iter(injections.values()), "")
+            if first_payload:
+                try:
+                    await client.put(
+                        f"{control_url}/current/injection-plan",
+                        json={"instructions": [{"payload": first_payload, "mode": "embed"}]},
+                    )
+                except httpx.HTTPError:
+                    pass
+
         agent_output = await agent_client.send_task(prompt)
 
         complete_resp = await client.post(
@@ -461,7 +473,7 @@ async def run_benchmark(
 )
 @click.option(
     "--strategy", "strategy_override", default=None,
-    type=click.Choice(["pair", "tap", "crescendo", "red_team", "prompt_sending", "skeleton_key", "many_shot", "chunked_request", "multi_prompt", "gptfuzzer", "sequential", "adaptive", "fuzz"]),
+    type=click.Choice(["pair", "tap", "crescendo", "red_team", "prompt_sending", "skeleton_key", "many_shot", "chunked_request", "multi_prompt", "gptfuzzer", "sequential", "adaptive", "fuzz", "hybrid"]),
     help="Override attack strategy for all injection tasks.",
 )
 def main(

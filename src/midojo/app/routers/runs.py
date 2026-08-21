@@ -25,10 +25,12 @@ from ..models import (
     EvaluationSummary,
     FunctionCallResponse,
     GradeResponse,
+    InjectionInstructionModel,
     RecordObservationsRequest,
     RunResponse,
+    SetInjectionPlanRequest,
 )
-from ..state import Evaluation, Run
+from ..state import Evaluation, InjectionInstruction, Run
 from ..store import Store
 
 router = APIRouter(prefix="/runs")
@@ -327,3 +329,78 @@ def record_current_observations(
     run_id, eval_id = ids
     evaluation = _require_current(store.record_observations(run_id, eval_id, req.source, req.data))
     return evaluation.observations
+
+
+# --- Injection plan endpoints ---
+
+
+@router.get(
+    "/{run_id}/evaluations/{eval_id}/injection-plan",
+    response_model=list[InjectionInstructionModel],
+    status_code=status.HTTP_200_OK,
+)
+def get_injection_plan(
+    evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)],
+) -> list[dict]:
+    return [
+        {"payload": i.payload, "target_tool": i.target_tool, "target_field": i.target_field, "mode": i.mode}
+        for i in evaluation.injection_plan
+    ]
+
+
+@router.put(
+    "/{run_id}/evaluations/{eval_id}/injection-plan",
+    response_model=list[InjectionInstructionModel],
+    status_code=status.HTTP_200_OK,
+)
+def set_injection_plan(
+    eval_id: str,
+    req: SetInjectionPlanRequest,
+    run: Annotated[Run, Depends(get_run)],
+    store: Annotated[Store, Depends(get_store)],
+) -> list[dict]:
+    plan = [
+        InjectionInstruction(payload=i.payload, target_tool=i.target_tool, target_field=i.target_field, mode=i.mode)
+        for i in req.instructions
+    ]
+    evaluation = _require_eval(store.set_injection_plan(run.id, eval_id, plan), eval_id)
+    return [
+        {"payload": i.payload, "target_tool": i.target_tool, "target_field": i.target_field, "mode": i.mode}
+        for i in evaluation.injection_plan
+    ]
+
+
+@current_router.get(
+    "/injection-plan",
+    response_model=list[InjectionInstructionModel],
+    status_code=status.HTTP_200_OK,
+)
+def get_current_injection_plan(
+    evaluation: Annotated[Evaluation, Depends(get_current_evaluation)],
+) -> list[dict]:
+    return [
+        {"payload": i.payload, "target_tool": i.target_tool, "target_field": i.target_field, "mode": i.mode}
+        for i in evaluation.injection_plan
+    ]
+
+
+@current_router.put(
+    "/injection-plan",
+    response_model=list[InjectionInstructionModel],
+    status_code=status.HTTP_200_OK,
+)
+def set_current_injection_plan(
+    req: SetInjectionPlanRequest,
+    ids: Annotated[tuple[str, str], Depends(get_current_ids)],
+    store: Annotated[Store, Depends(get_store)],
+) -> list[dict]:
+    run_id, eval_id = ids
+    plan = [
+        InjectionInstruction(payload=i.payload, target_tool=i.target_tool, target_field=i.target_field, mode=i.mode)
+        for i in req.instructions
+    ]
+    evaluation = _require_current(store.set_injection_plan(run_id, eval_id, plan))
+    return [
+        {"payload": i.payload, "target_tool": i.target_tool, "target_field": i.target_field, "mode": i.mode}
+        for i in evaluation.injection_plan
+    ]

@@ -155,6 +155,15 @@ async def run_fuzz_strategy(ctx: StrategyContext) -> dict:
             eval_id = eval_data["id"]
             prompt = eval_data["prompt"]
 
+            # Push injection plan for the thin proxy
+            try:
+                await client.put(
+                    f"{ctx.control_url}/current/injection-plan",
+                    json={"instructions": [{"payload": payload, "mode": "embed"}]},
+                )
+            except httpx.HTTPError:
+                pass
+
             agent_output = await ctx.agent_client.send_task(prompt)
 
             await client.post(
