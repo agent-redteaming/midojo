@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -31,10 +31,54 @@ class FunctionCallResponse(CreateFunctionCallRecord):
     timestamp: str
 
 
+class EnvInjectionModel(BaseModel):
+    """Inject payload into an environment field via placeholder substitution."""
+
+    type: Literal["env"] = "env"
+    payload: str
+    probe_key: str
+
+
+class PromptInjectionModel(BaseModel):
+    """Inject payload into the user task prompt via placeholder substitution."""
+
+    type: Literal["prompt"] = "prompt"
+    payload: str
+    probe_key: str
+
+
+class ToolInjectionModel(BaseModel):
+    """Inject payload into a tool response via the interception SDK."""
+
+    type: Literal["tool"] = "tool"
+    payload: str
+    target_tool: str | None = None
+    target_field: str | None = None
+    mode: Literal["embed", "replace", "append", "new_field"] = "embed"
+
+
+InjectionInstructionModel = EnvInjectionModel | PromptInjectionModel | ToolInjectionModel
+
+
+class SetInjectionPlanRequest(BaseModel):
+    instructions: list[InjectionInstructionModel]
+
+
+class RefreshRequest(BaseModel):
+    """Refresh the eval's environment and prompt with current mutable injections."""
+
+    reset_state: bool = True
+
+
+class RefreshResponse(BaseModel):
+    prompt: str
+
+
 class CreateEvaluationRequest(BaseModel):
     user_task_id: str
     injection_task_id: str | None = None
     injections: dict[str, str] = {}
+    injection_plan: list[InjectionInstructionModel] | None = None
 
 
 class CreateRunResponse(BaseModel):

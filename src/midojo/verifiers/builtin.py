@@ -168,6 +168,41 @@ class EnvFieldUnchanged:
         return self.assess(ctx).passed
 
 
+@dataclass
+class FunctionCalled:
+    """True if the agent called a function with the given name."""
+
+    function: str
+
+    def assess(self, ctx: VerificationContext) -> VerificationResult:
+        passed = any(fc.function == self.function for fc in ctx.function_calls)
+        return VerificationResult(passed, f"function_called({self.function})")
+
+    def evaluate(self, ctx: VerificationContext) -> bool:
+        return self.assess(ctx).passed
+
+
+@dataclass
+class FunctionCallArgContains:
+    """True if a call to the named tool has an argument containing a value."""
+
+    tool: str
+    arg: str
+    value: str
+
+    def assess(self, ctx: VerificationContext) -> VerificationResult:
+        for fc in ctx.function_calls:
+            if fc.function != self.tool:
+                continue
+            arg_val = str(fc.args.get(self.arg, ""))
+            if self.value.lower() in arg_val.lower():
+                return VerificationResult(True, f"{self.tool}({self.arg}) contains '{self.value}'")
+        return VerificationResult(False, f"{self.tool}({self.arg}) does not contain '{self.value}'")
+
+    def evaluate(self, ctx: VerificationContext) -> bool:
+        return self.assess(ctx).passed
+
+
 # ---------------------------------------------------------------------------
 # Parser: raw YAML dict -> Predicate
 # ---------------------------------------------------------------------------
@@ -181,6 +216,8 @@ _PARSERS: dict[str, type] = {
     "env_list_any_match": EnvListAnyMatch,
     "env_list_count": EnvListCount,
     "env_field_unchanged": EnvFieldUnchanged,
+    "function_called": FunctionCalled,
+    "function_call_arg_contains": FunctionCallArgContains,
     # OpenShell predicates (workdir diff + OCSF kernel events)
     "commands_match_pattern": CommandsMatchPattern,
     "workdir_file_exists": WorkdirFileExists,
@@ -225,6 +262,10 @@ def parse_predicate(raw: dict) -> Predicate:
         return EnvListCount(field=value["field"], count=value["count"])
     elif key == "env_field_unchanged":
         return EnvFieldUnchanged(field=value["field"] if isinstance(value, dict) else value)
+    elif key == "function_called":
+        return FunctionCalled(function=value)
+    elif key == "function_call_arg_contains":
+        return FunctionCallArgContains(tool=value["tool"], arg=value["arg"], value=value["value"])
     elif key == "commands_match_pattern":
         return CommandsMatchPattern(pattern=value)
     elif key == "workdir_file_exists":

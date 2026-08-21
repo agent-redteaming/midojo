@@ -187,16 +187,17 @@ async def _create_evaluation(
     user_task_id: str,
     injection_task_id: str | None,
     injections: dict[str, str],
+    injection_plan: list[dict] | None = None,
 ) -> tuple[str, str]:
     """POST /evaluations and return (eval_id, prompt)."""
-    resp = await client.post(
-        f"{control_url}/runs/{run_id}/evaluations",
-        json={
-            "user_task_id": user_task_id,
-            "injection_task_id": injection_task_id,
-            "injections": injections,
-        },
-    )
+    body: dict = {
+        "user_task_id": user_task_id,
+        "injection_task_id": injection_task_id,
+        "injections": injections,
+    }
+    if injection_plan:
+        body["injection_plan"] = injection_plan
+    resp = await client.post(f"{control_url}/runs/{run_id}/evaluations", json=body)
     resp.raise_for_status()
     data = resp.json()
     return data["id"], data["prompt"]
@@ -231,6 +232,7 @@ async def run_task(
     injection_task_id: str | None,
     injections: dict[str, str],
     *,
+    injection_plan: list[dict] | None = None,
     backend: EnvironmentBackend | None = None,
 ) -> dict:
     """Run a single evaluation.
@@ -241,7 +243,8 @@ async def run_task(
     """
     async with httpx.AsyncClient(timeout=300.0) as client:
         eval_id, prompt = await _create_evaluation(
-            client, control_url, run_id, user_task_id, injection_task_id, injections
+            client, control_url, run_id, user_task_id, injection_task_id, injections,
+            injection_plan=injection_plan,
         )
 
         if backend is not None:
@@ -322,7 +325,10 @@ async def run_benchmark(
     try:
         for ut_id in user_tasks_to_run:
             for it_id in it_ids_to_run:
-                injections = suite.get_probes_for_task(it_id) if it_id else {}
+                if it_id:
+                    injections, plan = suite.build_injection_inputs(it_id)
+                else:
+                    injections, plan = {}, []
                 result = await run_task(
                     control_url,
                     agent_client,
@@ -330,6 +336,7 @@ async def run_benchmark(
                     ut_id,
                     it_id,
                     injections,
+                    injection_plan=plan or None,
                     backend=lifecycle_backend,
                 )
                 utility_results[TaskPair(ut_id, it_id or "")] = result["utility"]
