@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 if TYPE_CHECKING:
-    from midojo.openshell_backend import OpenShellBackend
+    from midojo.backends.openshell import OpenShellBackend
 
 
 class AgentClient(abc.ABC):

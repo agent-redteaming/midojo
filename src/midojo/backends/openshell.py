@@ -39,7 +39,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from midojo.openshell_logs import OCSFEvents, parse_ocsf_lines
+from midojo.backends.openshell_logs import OCSFEvents, parse_ocsf_lines
 from midojo.probes import substitute_probes
 from midojo.types import Environment
 

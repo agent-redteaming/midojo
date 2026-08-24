@@ -1,7 +1,7 @@
 import pytest
 
 from midojo.backends import build_backend
-from midojo.openshell_backend import (
+from midojo.backends.openshell import (
     OpenShellBackend,
     OpenShellEnvironment,
     _resolve_policy,

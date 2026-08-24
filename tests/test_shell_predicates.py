@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from midojo.openshell_backend import CommandRecord, OpenShellEnvironment
+from midojo.backends.openshell import CommandRecord, OpenShellEnvironment
 from midojo.types import Environment
 from midojo.verifiers import VerificationContext
 from midojo.verifiers.builtin import parse_predicate

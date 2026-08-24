@@ -448,7 +448,7 @@ def main(
     lifecycle_backend: EnvironmentBackend | None = None
 
     if protocol == "openshell":
-        from midojo.openshell_backend import OpenShellBackend
+        from midojo.backends.openshell import OpenShellBackend
 
         if not isinstance(suite.backend, OpenShellBackend):
             raise click.UsageError("--protocol openshell requires a suite with 'backend: {type: openshell, ...}'")
