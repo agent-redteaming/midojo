@@ -16,7 +16,7 @@ def eval_context(client):
     run_id = client.post("/runs").json()["id"]
     eval_resp = client.post(
         f"/runs/{run_id}/evaluations",
-        json={"user_task_id": "user_task_0"},
+        json={"user_task_id": "weather_new_york"},
     ).json()
     return client, run_id, eval_resp["id"]
 
