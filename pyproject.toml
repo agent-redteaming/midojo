@@ -35,6 +35,15 @@ shell = [
     # `protobuf>=5.29` pin is too old for it, so tighten it when installing shell.
     "protobuf>=6.31.1",
 ]
+# The LangChain agent + its native LangGraph server. Targets LangChain 1.x:
+# `create_agent` returns a LangGraph graph, served over HTTP by `langgraph dev`
+# (in-memory Agent Server) and driven from the orchestrator via `langgraph-sdk`.
+langchain = [
+    "langchain>=1.0",
+    "langchain-openai>=1.0",
+    "langgraph-cli[inmem]>=0.2",
+    "langgraph-sdk>=0.1",
+]
 dev = [
     "pytest>=8.0.2",
     "pytest-asyncio>=0.24",
@@ -52,6 +61,7 @@ weather-a2a-agent = "suites.weather.a2a_agent.agent:main"
 minibank-fake-mcp-serve = "suites.minibank.a2a_agent.fake_mcp:main"
 minibank-real-mcp-serve = "suites.minibank.a2a_agent.real_mcp:main"
 minibank-a2a-agent = "suites.minibank.a2a_agent.agent:main"
+weather-langchain-agent = "suites.weather.langchain_agent.run:main"
 
 [build-system]
 requires = ["hatchling"]

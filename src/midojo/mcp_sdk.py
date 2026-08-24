@@ -10,8 +10,11 @@ import functools
 import inspect
 from typing import Any
 
-import httpx
 from fastmcp import Client, FastMCP
+
+from midojo.sdk import ControlPlaneClient, ToolContext
+
+__all__ = ["ControlPlaneClient", "MidojoMCP", "ToolContext", "UpstreamClient"]
 
 
 class UpstreamClient:
@@ -31,84 +34,6 @@ class UpstreamClient:
             else:
                 parts.append(str(content))
         return "\n".join(parts)
-
-
-class ToolContext:
-    """Async access to the evaluation environment on the control plane."""
-
-    def __init__(
-        self,
-        client: ControlPlaneClient,
-        upstream: UpstreamClient | None = None,
-    ) -> None:
-        self._client = client
-        self._upstream = upstream
-
-    async def env(self, field: str) -> Any:
-        environment = await self._client.get_environment()
-        return environment[field]
-
-    async def env_update(self, field: str, value: Any) -> None:
-        environment = await self._client.get_environment()
-        environment[field] = value
-        await self._client.put_environment(environment)
-
-    async def forward(self, tool_name: str, args: dict) -> str:
-        """Forward a tool call to the upstream MCP server."""
-        if self._upstream is None:
-            raise RuntimeError(
-                "No upstream MCP server configured. "
-                "Pass --upstream-url when starting the fake MCP server."
-            )
-        return await self._upstream.call_tool(tool_name, args)
-
-
-class ControlPlaneClient:
-    def __init__(
-        self,
-        base_url: str,
-        *,
-        http: httpx.AsyncClient | None = None,
-    ) -> None:
-        base = base_url.rstrip("/")
-        self._base_url = f"{base}/current"
-        self._http = http or httpx.AsyncClient()
-
-    async def get_environment(self) -> dict[str, Any]:
-        resp = await self._http.get(f"{self._base_url}/environment")
-        resp.raise_for_status()
-        return resp.json()
-
-    async def put_environment(self, env: dict[str, Any]) -> None:
-        resp = await self._http.put(
-            f"{self._base_url}/environment",
-            json=env,
-        )
-        resp.raise_for_status()
-
-    async def record_function_call(
-        self,
-        *,
-        function: str,
-        args: dict,
-        result: str,
-        error: str | None = None,
-    ) -> None:
-        try:
-            await self._http.post(
-                f"{self._base_url}/function-calls",
-                json={
-                    "function": function,
-                    "args": args,
-                    "result": result,
-                    "error": error,
-                },
-            )
-        except httpx.HTTPError:
-            pass
-
-    def create_tool_context(self, upstream: UpstreamClient | None = None) -> ToolContext:
-        return ToolContext(self, upstream=upstream)
 
 
 class MidojoMCP:
@@ -143,15 +68,14 @@ class MidojoMCP:
             sig = inspect.signature(fn, eval_str=True)
             params = list(sig.parameters.values())
             if not params or params[0].annotation is not ToolContext:
-                raise TypeError(
-                    f"First parameter of {fn.__name__} must be annotated as ToolContext"
-                )
+                raise TypeError(f"First parameter of {fn.__name__} must be annotated as ToolContext")
             user_params = params[1:]
             user_sig = sig.replace(parameters=user_params)
 
             @functools.wraps(fn)
             async def wrapper(**kwargs):
-                ctx = self._client.create_tool_context(upstream=self._upstream)
+                forward_fn = self._upstream.call_tool if self._upstream else None
+                ctx = self._client.create_tool_context(forward_fn=forward_fn)
                 result: str = ""
                 error: str | None = None
                 try:
@@ -171,9 +95,7 @@ class MidojoMCP:
 
             wrapper.__signature__ = user_sig
             wrapper.__annotations__ = {
-                p.name: p.annotation
-                for p in user_params
-                if p.annotation is not inspect.Parameter.empty
+                p.name: p.annotation for p in user_params if p.annotation is not inspect.Parameter.empty
             }
 
             self._fastmcp.tool(wrapper, name=fn.__name__, description=fn.__doc__)

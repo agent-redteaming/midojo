@@ -31,3 +31,6 @@ package-lock.json
 
 # Benchmark output
 runs/
+
+# LangGraph dev server runtime state
+.langgraph_api/
