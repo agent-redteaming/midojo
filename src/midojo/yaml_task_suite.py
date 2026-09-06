@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -11,6 +13,53 @@ from midojo.backends import EnvironmentBackend, build_backend
 from midojo.probes import substitute_probes
 from midojo.types import Environment, FunctionCallRecord
 from midojo.verifier import Check, VerificationContext, parse_check
+
+# ``${env.VAR}`` references (OGX-style), expanded from the process environment in
+# the backend config only (see ``_expand_env_vars``). The ``env.`` namespace
+# keeps these from colliding with the bare ``${...}`` shell tokens that appear in
+# attack payloads, and mirrors the syntax OGX uses in its distribution configs.
+_ENV_VAR_RE = re.compile(r"\$\{env\.([A-Za-z_][A-Za-z0-9_]*)(?:(:=|:\+)([^}]*))?\}")
+
+
+def _expand_env_vars(value: Any) -> Any:
+    """Recursively expand ``${env.VAR}`` references in string leaves.
+
+    Deployment-specific settings (notably the sandbox network policy's control
+    plane host, which differs between a local gateway and a cluster) can be
+    parameterised from the environment instead of hard-coded. The syntax mirrors
+    OGX's distribution configs, with an added bare (required) form:
+
+    - ``${env.VAR:=default}`` — ``default`` when VAR is unset *or empty*
+    - ``${env.VAR:+value}``   — ``value`` only when VAR is set and non-empty, else ""
+    - ``${env.VAR}``          — required: raises when VAR is unset or empty
+
+    This is applied to the ``environment.backend`` subtree only — never to attack
+    payloads, which legitimately contain bare ``${...}`` (e.g. ``${IFS}`` shell
+    obfuscation). The ``env.`` namespace means even a stray ``${env.X}`` in a
+    payload would be out of scope here; nothing else looks like these tokens.
+    """
+    if isinstance(value, dict):
+        return {k: _expand_env_vars(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_expand_env_vars(v) for v in value]
+    if isinstance(value, str):
+        return _ENV_VAR_RE.sub(_replace_env_match, value)
+    return value
+
+
+def _replace_env_match(match: re.Match[str]) -> str:
+    name, op, arg = match.group(1), match.group(2), match.group(3)
+    value = os.environ.get(name)
+    if op == ":=":  # ${env.VAR:=default}
+        return value or arg
+    if op == ":+":  # ${env.VAR:+value}
+        return arg if value else ""
+    if value:  # bare ${env.VAR} — required
+        return value
+    raise ValueError(
+        f"environment variable '{name}' referenced in suite backend config is unset "
+        f"or empty (use '${{env.{name}:=default}}' to provide a default)"
+    )
 
 
 @dataclass
@@ -40,6 +89,9 @@ class YAMLTaskSuite:
         self.name = name
         self._suite_yaml_path = suite_yaml_path
         self._suite_raw: dict = yaml.safe_load(suite_yaml_path.read_text())
+        environment = self._suite_raw.get("environment")
+        if isinstance(environment, dict) and "backend" in environment:
+            environment["backend"] = _expand_env_vars(environment["backend"])
         self.backend: EnvironmentBackend = backend or build_backend(name, self._suite_raw["environment"])
         self.user_tasks: dict[str, UserTask] = {}
         self.injection_tasks: dict[str, InjectionTask] = {}
@@ -127,7 +179,6 @@ class YAMLTaskSuite:
         index = probe_raw.get("index", 0)
         if not 0 <= index < len(payload_set.payloads):
             raise ValueError(
-                f"index {index} out of range for payload set '{payload_set.id}' "
-                f"({len(payload_set.payloads)} payloads)"
+                f"index {index} out of range for payload set '{payload_set.id}' ({len(payload_set.payloads)} payloads)"
             )
         return payload_set.payloads[index]
