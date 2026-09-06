@@ -1,0 +1,58 @@
+# HTTP-wrapped pi agent for the eval_hub_suite (EvalHub Option C).
+#
+# Serves midojo's `--protocol http` contract (POST {"prompt"} -> {"response"})
+# by launching `pi -p --no-session` per request with the midojo pi-sdk
+# extensions loaded and MIDOJO_URL pointing at the operator-managed control
+# plane. Model credentials (LiteLLM/MaaS) are supplied at runtime via env, not
+# baked into the image.
+#
+# Build from the midojo repo root (needs pi-sdk/ + the suite in the context):
+#   podman build -t quay.io/evalhub/eval-hub-suite-agent:latest \
+#     -f suites/eval_hub_suite/pi_agent/Containerfile .
+FROM registry.access.redhat.com/ubi9/nodejs-20:latest
+
+USER 0
+
+# Install the pi coding agent globally. pi bundles its own `typebox` under its
+# node_modules, so the extensions' bare `import { Type } from "typebox"` resolves
+# regardless of where the extension file lives.
+ARG PI_VERSION=0.73.0
+RUN npm install -g "@mariozechner/pi-coding-agent@${PI_VERSION}" \
+    && npm cache clean --force
+
+ENV HOME=/opt/app-root/src \
+    APP_DIR=/opt/app-root/app \
+    AGENT_DIR=/opt/app-root/src/agent \
+    AGENT_GLOBAL_DIR=/opt/app-root/src/.pi/agent \
+    PI_CONFIG_DIR=/opt/app-root/src/.pi \
+    AGENT_HOST=0.0.0.0 \
+    AGENT_PORT=8000
+
+RUN mkdir -p "$APP_DIR" "$AGENT_DIR/.pi" "$AGENT_GLOBAL_DIR/extensions" "$AGENT_GLOBAL_DIR/pi-sdk" "$PI_CONFIG_DIR"
+
+# HTTP wrapper + entrypoint.
+COPY suites/eval_hub_suite/pi_agent/server.mjs "$APP_DIR/server.mjs"
+COPY suites/eval_hub_suite/pi_agent/entrypoint.sh "$APP_DIR/entrypoint.sh"
+
+# System prompt: pi reads AGENTS.md from its working directory (AGENT_DIR).
+COPY suites/eval_hub_suite/pi_agent/AGENTS.md "$AGENT_DIR/AGENTS.md"
+
+# midojo pi-sdk + red-team extensions into pi's GLOBAL agent dir so they load
+# regardless of the working directory. Rewrite the dev-time relative import
+# (../../../../../pi-sdk/src) to the in-image layout (../pi-sdk/src):
+# extensions/ -> agent/ -> pi-sdk/src.
+COPY pi-sdk/ "$AGENT_GLOBAL_DIR/pi-sdk/"
+COPY suites/eval_hub_suite/pi_agent/.pi/extensions/ "$AGENT_GLOBAL_DIR/extensions/"
+RUN sed -i 's#\.\./\.\./\.\./\.\./\.\./pi-sdk/src#../pi-sdk/src#g' "$AGENT_GLOBAL_DIR/extensions/"*.ts
+
+# OpenShift runs the container with an arbitrary UID in group 0. Make the app
+# tree group-owned and group-writable so the entrypoint can write models.json /
+# settings.json and pi can write its cache.
+RUN chmod +x "$APP_DIR/entrypoint.sh" \
+    && chgrp -R 0 /opt/app-root \
+    && chmod -R g=u /opt/app-root
+
+USER 1001
+WORKDIR /opt/app-root/src/agent
+EXPOSE 8000
+ENTRYPOINT ["/opt/app-root/app/entrypoint.sh"]

@@ -1,0 +1,12 @@
+# Deploys the eval_hub_suite pi agent (system under test).
+#
+# The LLM-credentials Secret is intentionally NOT included here — create it
+# separately from agent-secret.example.yaml so real credentials never live in
+# version control. Set the target namespace to your EvalHub CR namespace:
+#
+#   oc apply -k suites/eval_hub_suite/pi_agent/deploy -n openshell
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - agent.yaml
+  - route.yaml

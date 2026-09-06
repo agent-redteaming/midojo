@@ -1,0 +1,87 @@
+# HTTP-wrapped pi agent (system under test) for the eval_hub_suite.
+#
+# Deploy into the same namespace as the EvalHub CR / midojo control plane
+# (default: openshell). The orchestrator (eval-hub adapter job) reaches this
+# agent at http://eval-hub-suite-agent.<ns>.svc.cluster.local:8000 and the
+# agent's pi-sdk hooks call back to the control plane at MIDOJO_URL.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eval-hub-suite-agent
+  labels:
+    app.kubernetes.io/part-of: eval-hub-midojo
+    app.kubernetes.io/component: agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: agent
+      app.kubernetes.io/part-of: eval-hub-midojo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: eval-hub-midojo
+        app.kubernetes.io/component: agent
+    spec:
+      containers:
+        - name: agent
+          image: quay.io/evalhub/eval-hub-suite-agent:latest
+          imagePullPolicy: Always
+          env:
+            # Fixed control-plane address created by the EvalHub operator:
+            # <cr-name>-midojo Service in the CR namespace. Adjust cr-name/ns if
+            # your EvalHub CR is not "evalhub" in "openshell".
+            - name: MIDOJO_URL
+              value: http://evalhub-midojo.openshell.svc.cluster.local:8080
+            - name: AGENT_PORT
+              value: "8000"
+            # Reasoning models are slow; give pi a generous per-request budget.
+            - name: PI_TIMEOUT_MS
+              value: "600000"
+          envFrom:
+            - secretRef:
+                name: eval-hub-suite-agent-llm-creds
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eval-hub-suite-agent
+  labels:
+    app.kubernetes.io/part-of: eval-hub-midojo
+    app.kubernetes.io/component: agent
+spec:
+  selector:
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/part-of: eval-hub-midojo
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

@@ -1,0 +1,19 @@
+# Optional external Route for the pi agent — handy for smoke-testing the agent
+# directly (POST {"prompt"}). Not required for the eval flow: the orchestrator
+# reaches the agent via the in-cluster Service DNS.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: eval-hub-suite-agent
+  labels:
+    app.kubernetes.io/part-of: eval-hub-midojo
+    app.kubernetes.io/component: agent
+spec:
+  to:
+    kind: Service
+    name: eval-hub-suite-agent
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
