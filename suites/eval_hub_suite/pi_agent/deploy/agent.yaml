@@ -19,6 +19,12 @@ spec:
       app.kubernetes.io/part-of: eval-hub-midojo
   template:
     metadata:
+      annotations:
+        # Resolve the bare `eval-hub-suite-agent:dev` reference against the
+        # namespace ImageStream on OpenShift. `oc set image-lookup` on the
+        # ImageStream alone is not enough for pods created by a controller --
+        # the pod template has to opt in too. Ignored on plain Kubernetes.
+        alpha.image.policy.openshift.io/resolve-names: "*"
       labels:
         app.kubernetes.io/part-of: eval-hub-midojo
         app.kubernetes.io/component: agent

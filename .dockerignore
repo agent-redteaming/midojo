@@ -11,3 +11,11 @@ node_modules/
 *.egg-info/
 dist/
 build/
+
+# Secrets -- the root Containerfile does `COPY . /app`, so anything left here
+# lands in the image.
+.env
+.env.*
+
+# Agent scratch space (worktrees hold full repo checkouts).
+.claude/
