@@ -1,9 +1,9 @@
 # HTTP-wrapped pi agent (system under test) for the eval_hub_suite.
 #
-# Deploy into the same namespace as the EvalHub CR / midojo control plane
-# (default: openshell). The orchestrator (eval-hub adapter job) reaches this
-# agent at http://eval-hub-suite-agent.<ns>.svc.cluster.local:8000 and the
-# agent's pi-sdk hooks call back to the control plane at MIDOJO_URL.
+# Deploy into the same namespace as the EvalHub CR / midojo control plane.
+# The orchestrator (eval-hub adapter job) reaches this agent at
+# http://eval-hub-suite-agent.<ns>.svc.cluster.local:8000 and the agent's
+# pi-sdk hooks call back to the control plane at MIDOJO_URL.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,14 +25,14 @@ spec:
     spec:
       containers:
         - name: agent
-          image: quay.io/evalhub/eval-hub-suite-agent:latest
+          image: eval-hub-suite-agent:dev
           imagePullPolicy: Always
           env:
-            # Fixed control-plane address created by the EvalHub operator:
-            # <cr-name>-midojo Service in the CR namespace. Adjust cr-name/ns if
-            # your EvalHub CR is not "evalhub" in "openshell".
+            # Control-plane Service created by the EvalHub operator in this
+            # namespace (<cr-name>-midojo-control-plane). Adjust if your EvalHub
+            # CR is not named "evalhub".
             - name: MIDOJO_URL
-              value: http://evalhub-midojo.openshell.svc.cluster.local:8080
+              value: http://evalhub-midojo-control-plane:8080
             - name: AGENT_PORT
               value: "8000"
             # Reasoning models are slow; give pi a generous per-request budget.

@@ -24,7 +24,8 @@ control plane addressed by a fixed, operator-provisioned URL.
   `02-real-tools.ts`). At image build they are installed into pi's global agent
   dir and their dev import path is rewritten to the in-image layout.
 - `MIDOJO_URL` (env) — the fixed control-plane address the extensions call back
-  to. In-cluster this is the operator-created `<cr-name>-midojo` Service.
+  to. In-cluster this is the operator-created `<cr-name>-midojo-control-plane`
+  Service.
 
 ## Build
 
@@ -54,18 +55,11 @@ midojo-run --protocol http --suite eval_hub_suite \
 
 ## Deploy (OpenShift)
 
-```bash
-# LLM creds (never committed)
-oc create secret generic eval-hub-suite-agent-llm-creds -n openshell \
-  --from-literal=LITELLM_API_KEY=... \
-  --from-literal=LITELLM_API_URL=https://your-maas-endpoint/v1 \
-  --from-literal=LITELLM_MODEL=your-model-id
-
-oc apply -k suites/eval_hub_suite/pi_agent/deploy -n openshell
-```
-
-Set `MIDOJO_URL` in `deploy/agent.yaml` to your EvalHub CR's control-plane
-Service (`http://<cr-name>-midojo.<ns>.svc.cluster.local:8080`).
+See step 1 in `eval-hub-contrib/adapters/midojo/README.md` for the full flow
+(image build, LLM secret, `oc apply -k`). `deploy/agent.yaml` uses the
+namespace-local ImageStream tag `eval-hub-suite-agent:dev` and in-cluster DNS
+`http://evalhub-midojo-control-plane:8080`. Change `MIDOJO_URL` only if your
+EvalHub CR is not named `evalhub`.
 
 ## Model note
 
