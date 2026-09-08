@@ -22,6 +22,7 @@ package-lock.json
 .DS_Store
 .idea/
 .vscode/
+.claude/
 *.swp
 
 # Tool caches
