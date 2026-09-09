@@ -7,7 +7,7 @@
 # baked into the image.
 #
 # Build from the midojo repo root (needs pi-sdk/ + the suite in the context):
-#   podman build -t quay.io/evalhub/eval-hub-suite-agent:latest \
+#   podman build -t <your-registry>/<image-name>:<tag> \
 #     -f suites/eval_hub_suite/pi_agent/Containerfile .
 FROM registry.access.redhat.com/ubi9/nodejs-20:latest
 
